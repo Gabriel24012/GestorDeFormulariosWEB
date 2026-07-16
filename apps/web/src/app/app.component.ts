@@ -48,7 +48,17 @@ import { AuthService } from './core/auth.service';
     <button (click)="extendSession()">Alargar sesion</button>
   </section>
 }
-<main><router-outlet/></main>`
+<main><router-outlet/></main>
+<footer class="site-footer">
+  <div>
+    <strong>Gestion de Captura</strong>
+    <span>Sistema interno de seguimiento y registros.</span>
+  </div>
+  <div>
+    <span>© 2026</span>
+    <span>Soporte: contacta a tu administrador.</span>
+  </div>
+</footer>`
 })
 export class AppComponent {
   readonly auth = inject(AuthService);
