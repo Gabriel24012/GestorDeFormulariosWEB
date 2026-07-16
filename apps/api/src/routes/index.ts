@@ -1259,16 +1259,27 @@ function exportRecordRow(row: any) {
   };
 }
 
-function applyRecordSearch<T extends { or: (filters: string) => T }>(query: T, value: string) {
-  const term = value.trim().replace(/[,%]/g, ' ').replace(/\s+/g, ' ');
-  const fields = ['first_name', 'paternal_surname', 'maternal_surname', 'phone', 'electoral_key', 'address', 'neighborhood', 'district', 'postal_code', 'leadership_name', 'section_code'];
-  return query.or(fields.map((field) => `${field}.ilike.%${term}%`).join(','));
+type SearchableQuery<T> = { or: (filters: string) => T };
+
+function searchTokens(value: string) {
+  return value.trim().replace(/[,%]/g, ' ').replace(/\s+/g, ' ').split(' ').filter(Boolean);
 }
 
-function applyManagerRecordSearch<T extends { or: (filters: string) => T }>(query: T, value: string) {
-  const term = value.trim().replace(/[,%]/g, ' ').replace(/\s+/g, ' ');
-  const fields = ['first_name', 'paternal_surname', 'maternal_surname', 'phone'];
-  return query.or(fields.map((field) => `${field}.ilike.%${term}%`).join(','));
+function applyTokenizedSearch<T extends SearchableQuery<T>>(query: T, value: string, fields: string[]) {
+  return searchTokens(value).reduce((nextQuery, token) => {
+    const filters = fields.map((field) => `${field}.ilike.%${token}%`).join(',');
+    return nextQuery.or(filters);
+  }, query);
+}
+
+function applyRecordSearch<T extends SearchableQuery<T>>(query: T, value: string) {
+  const fields = ['first_name', 'paternal_surname', 'maternal_surname', 'phone', 'electoral_key', 'address', 'neighborhood', 'district', 'postal_code', 'leadership_name', 'section_code'];
+  return applyTokenizedSearch(query, value, fields);
+}
+
+function applyManagerRecordSearch<T extends SearchableQuery<T>>(query: T, value: string) {
+  const fields = ['first_name', 'paternal_surname', 'maternal_surname', 'phone', 'electoral_key'];
+  return applyTokenizedSearch(query, value, fields);
 }
 
 function toCsv(rows: Record<string, unknown>[]) {

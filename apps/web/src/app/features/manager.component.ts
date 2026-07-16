@@ -219,7 +219,7 @@ export class ManagerCapturersComponent implements OnInit {
     </section>
     <section class="card records-filter-card">
       <form class="filters records-filters" [formGroup]="filters" (ngSubmit)="search()">
-        <label>Buscar<input formControlName="q" placeholder="Nombre o telefono..."></label>
+        <label>Buscar<input formControlName="q" placeholder="Nombre o teléfono..."></label>
         <label>Capturador<select formControlName="capturer_id"><option value="">{{capturersLoading() ? 'Cargando capturadores...' : 'Todos'}}</option>@for(c of capturers(); track c.id) {@if(c.kind === 'profile') {<option [value]="c.id">{{c.full_name}}</option>}}</select></label>
         <label>Desde<input type="date" formControlName="date_from"></label>
         <label>Hasta<input type="date" formControlName="date_to"></label>
@@ -262,7 +262,7 @@ export class ManagerCapturersComponent implements OnInit {
       }
       <div class="records-table-scroll">
         <table class="records-table">
-          <thead><tr><th>Fecha</th><th>Capturador</th><th>Nombre</th><th>Teléfono</th><th>Clave</th><th>Domicilio</th><th>No. EXT</th><th>Fracc.</th><th>Distrito</th><th>C.P.</th><th>Obs.</th></tr></thead>
+          <thead><tr><th>Fecha</th><th>Capturador</th><th>Nombre</th><th>Teléfono</th><th>Clave Electoral</th><th>Domicilio</th><th>No. EXT</th><th>Fracc.</th><th>Distrito</th><th>C.P.</th><th>Obs.</th></tr></thead>
           <tbody>
             @if(recordsLoading()) {
               @for(row of [1,2,3,4,5]; track row) {
@@ -341,7 +341,7 @@ export class ManagerRecordsComponent implements OnInit {
     {key: 'postal_code', label: 'C.P.', type: 'text', placeholder: '5 dígitos'},
     {key: 'birth_date', label: 'Fecha de nacimiento', type: 'date', placeholder: '', min: this.minBirthDate, max: this.maxBirthDate},
     {key: 'phone', label: 'Teléfono', type: 'tel', placeholder: '10 dígitos'},
-    {key: 'electoral_key', label: 'Clave electoral', type: 'text', placeholder: '18 caracteres'}
+    {key: 'electoral_key', label: 'Clave Electoral', type: 'text', placeholder: '18 caracteres'}
   ];
   private recordLabels: Record<string, string> = {
     first_name: 'nombre',

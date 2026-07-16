@@ -210,7 +210,7 @@ export class AdminManagerDetailComponent implements OnInit {
     <div class="page-title"><h1>Registros globales</h1><div><button (click)="download('csv')" [disabled]="!total()">CSV filtrado</button><button class="secondary" (click)="download('xlsx')" [disabled]="!total()">Excel filtrado</button></div></div>
     <section class="card records-filter-card">
       <form class="filters records-filters" [formGroup]="filters" (ngSubmit)="search()">
-        <label>Buscar<input formControlName="q" placeholder="Nombre o telefono..."></label>
+        <label>Buscar<input formControlName="q" placeholder="Nombre o teléfono..."></label>
         <label>Gestor<select formControlName="manager_id"><option value="">Todos</option>@for(manager of managers(); track manager.id) {<option [value]="manager.id">{{manager.full_name}}</option>}</select></label>
         <label>Desde<input type="date" formControlName="date_from"></label>
         <label>Hasta<input type="date" formControlName="date_to"></label>
@@ -225,7 +225,7 @@ export class AdminManagerDetailComponent implements OnInit {
       <p class="muted">{{total()}} registros encontrados. Página {{currentPage()}} de {{totalPages()}}</p>
       <div class="records-table-scroll">
         <table class="records-table">
-          <thead><tr><th>Fecha</th><th>Gestor</th><th>Capturador</th><th>Nombre</th><th>Teléfono</th><th>Clave</th><th>Fracc.</th><th>Distrito</th><th>C.P.</th></tr></thead>
+          <thead><tr><th>Fecha</th><th>Gestor</th><th>Capturador</th><th>Nombre</th><th>Teléfono</th><th>Clave Electoral</th><th>Fracc.</th><th>Distrito</th><th>C.P.</th></tr></thead>
           <tbody>
             @for(record of records(); track record.id) {
               <tr><td>{{dateTimeText(record.created_at)}}</td><td>{{record.manager?.full_name || '-'}}</td><td>{{record.capturer?.full_name || '-'}}</td><td>{{record.first_name}} {{record.paternal_surname}} {{record.maternal_surname || ''}}</td><td>{{record.phone}}</td><td>{{record.electoral_key}}</td><td>{{record.neighborhood || '-'}}</td><td>{{record.district || '-'}}</td><td>{{record.postal_code || '-'}}</td></tr>

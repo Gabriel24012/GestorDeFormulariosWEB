@@ -86,7 +86,7 @@ import { apiErrorMessage } from '../core/api-errors';
 
         <label class="search-box">
           Buscar registro
-          <input [value]="searchTerm()" (input)="search($any($event.target).value)" placeholder="Nombre, apellido, telefono, clave...">
+          <input [value]="searchTerm()" (input)="search($any($event.target).value)" placeholder="Nombre, apellido, teléfono, Clave Electoral...">
         </label>
 
         <div class="list-controls">
@@ -168,7 +168,7 @@ export class CaptureComponent implements OnInit {
     {key: 'postal_code', label: 'C.P.', type: 'text', placeholder: '5 dígitos'},
     {key: 'birth_date', label: 'Fecha de nacimiento', type: 'date', placeholder: '', min: this.minBirthDate, max: this.maxBirthDate},
     {key: 'phone', label: 'Teléfono', type: 'tel', placeholder: '10 dígitos'},
-    {key: 'electoral_key', label: 'Clave electoral', type: 'text', placeholder: '18 caracteres'}
+    {key: 'electoral_key', label: 'Clave Electoral', type: 'text', placeholder: '18 caracteres'}
   ];
 
   private labels: Record<string, string> = {
