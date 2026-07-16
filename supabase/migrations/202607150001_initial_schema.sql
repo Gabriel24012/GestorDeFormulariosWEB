@@ -107,7 +107,7 @@ create table public.audit_events (
 create
 or replace function public.bootstrap_admin(admin_email text) returns public.profiles language plpgsql security definer
 set
-  search_path = '' as $ $ declare result public.profiles;
+  search_path = '' as $$ declare result public.profiles;
 
 begin
 insert into
@@ -138,7 +138,7 @@ return result;
 
 end;
 
-$ $;
+$$;
 
 revoke all on function public.bootstrap_admin(text)
 from
@@ -171,7 +171,7 @@ grant usage on schema private to authenticated;
 create
 or replace function private.current_role() returns public.app_role language sql stable security definer
 set
-  search_path = '' as $ $
+  search_path = '' as $$
 select
   p.role
 from
@@ -180,12 +180,12 @@ where
   p.id = (
     select
       auth.uid()
-  ) $ $;
+  ) $$;
 
 create
 or replace function private.is_manager_of(target_capturer uuid) returns boolean language sql stable security definer
 set
-  search_path = '' as $ $
+  search_path = '' as $$
 select
   (
     select
@@ -203,12 +203,12 @@ select
           auth.uid()
       )
       and p.role = 'capturador'
-  ) $ $;
+  ) $$;
 
 create
 or replace function private.owns_session(target_session uuid) returns boolean language sql stable security definer
 set
-  search_path = '' as $ $
+  search_path = '' as $$
 select
   exists (
     select
@@ -221,7 +221,7 @@ select
         select
           auth.uid()
       )
-  ) $ $;
+  ) $$;
 
 grant execute on function private.current_role(),
 private.is_manager_of(uuid),
@@ -230,7 +230,7 @@ private.owns_session(uuid) to authenticated;
 create
 or replace function public.enforce_profile_hierarchy() returns trigger language plpgsql security definer
 set
-  search_path = '' as $ $ declare parent_role public.app_role;
+  search_path = '' as $$ declare parent_role public.app_role;
 
 begin if new.role = 'admin' then if new.parent_user_id is not null then raise exception 'Un administrador no puede tener superior';
 
@@ -268,12 +268,12 @@ return new;
 
 end;
 
-$ $;
+$$;
 
 create
 or replace function public.enforce_session_owner() returns trigger language plpgsql security definer
 set
-  search_path = '' as $ $ declare assigned_manager uuid;
+  search_path = '' as $$ declare assigned_manager uuid;
 
 begin
 select
@@ -313,12 +313,12 @@ return new;
 
 end;
 
-$ $;
+$$;
 
 create
 or replace function public.enforce_record_context() returns trigger language plpgsql security definer
 set
-  search_path = '' as $ $ declare session_row public.capture_sessions % rowtype;
+  search_path = '' as $$ declare session_row public.capture_sessions%rowtype;
 
 actor_role public.app_role;
 
@@ -383,12 +383,12 @@ return new;
 
 end;
 
-$ $;
+$$;
 
 create
 or replace function public.save_record_version() returns trigger language plpgsql security definer
 set
-  search_path = '' as $ $ begin
+  search_path = '' as $$ begin
 insert into
   public.record_versions(record_id, version_number, changed_by, snapshot)
 values
@@ -416,7 +416,7 @@ return new;
 
 end;
 
-$ $;
+$$;
 
 create trigger profiles_hierarchy before
 insert
