@@ -31,7 +31,7 @@ import { AuthService } from './core/auth.service';
   </div>
   @if (auth.profile(); as p) {
     <div class="header-panel" [class.open]="menuOpen()">
-      <p class="welcome">Bienvenido de nuevo {{p.full_name}}</p>
+      <p class="welcome">Bienvenido de nuevo <strong>¡{{p.full_name}}!</strong></p>
       <nav id="main-navigation">
         @if (p.role === 'capturador') {<a routerLink="/captura" routerLinkActive="active" [routerLinkActiveOptions]="{exact: true}" (click)="closeMenu()">Captura</a>}
         @if (p.role === 'admin') {<a routerLink="/admin" routerLinkActive="active" [routerLinkActiveOptions]="{exact: true}" (click)="closeMenu()">Gestores</a><a routerLink="/admin/registros" routerLinkActive="active" (click)="closeMenu()">Registros</a><a routerLink="/admin/metas" routerLinkActive="active" (click)="closeMenu()">Metas</a>}
