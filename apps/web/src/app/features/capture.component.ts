@@ -12,8 +12,8 @@ import { apiErrorMessage } from '../core/api-errors';
   template: `
     <h1>Captura de registros</h1>
     <section class="leadership-banner">
-      <small>Liderazgo</small>
-      <strong>{{context()?.leadership_name || 'Cargando...'}}</strong>
+      <small>Sesión abierta</small>
+      <strong>{{sessionName()}}</strong>
     </section>
     <div class="capture-layout">
       <section class="card">
@@ -141,6 +141,7 @@ export class CaptureComponent implements OnInit {
   districtSuggestions = signal<string[]>(this.catalog.suggest('district', ''));
   postalCodeSuggestions = signal<string[]>([]);
   totalPages = computed(() => Math.max(1, Math.ceil(this.recordsTotal() / this.pageSize())));
+  sessionName = computed(() => this.context()?.leadership_name ? `¡${this.context()!.leadership_name}!` : 'Cargando...');
 
   recordForm = new FormGroup({
     first_name: new FormControl('', { nonNullable: true, validators: Validators.required }),

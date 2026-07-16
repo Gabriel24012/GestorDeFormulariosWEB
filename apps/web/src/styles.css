@@ -310,13 +310,14 @@ select:disabled {
 }
 .leadership-banner strong {
   overflow-wrap: anywhere;
-  color: var(--ink);
-  font-size: 1rem;
+  color: var(--blue-strong);
+  font-size: 1.08rem;
   line-height: 1.25;
 }
 .form-tabs {
   display: flex;
   gap: .5rem;
+  margin-top: 1rem;
   margin-bottom: 1rem;
 }
 .form-tabs button {
