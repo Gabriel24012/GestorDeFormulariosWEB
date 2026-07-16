@@ -19,3 +19,5 @@ services:
         sync: false
       - key: APP_URL
         sync: false
+      - key: ENABLE_DEMO_DATA
+        value: false
