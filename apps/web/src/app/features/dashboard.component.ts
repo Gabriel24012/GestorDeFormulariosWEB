@@ -81,6 +81,7 @@ export class AdminDashboardComponent implements OnInit {
     this.api.get<{data: AdminManagerRow[]}>('/admin/managers').pipe(finalize(() => this.loading.set(false))).subscribe((response) => this.managers.set(response.data));
   }
   barWidth(value: number) { return Math.min(value, 100); }
+  dateTimeText(value: unknown) { return formatDateTimeText(value); }
 }
 
 @Component({
@@ -210,13 +211,14 @@ export class AdminManagerDetailComponent implements OnInit {
     <div class="page-title"><h1>Registros globales</h1><div><button (click)="download('csv')" [disabled]="!total()">CSV filtrado</button><button class="secondary" (click)="download('xlsx')" [disabled]="!total()">Excel filtrado</button></div></div>
     <section class="card records-filter-card">
       <form class="filters records-filters" [formGroup]="filters" (ngSubmit)="search()">
-        <label>Buscar<input formControlName="q" placeholder="Nombre o teléfono..."></label>
+        <label>Buscar<input formControlName="q" placeholder="Nombre, teléfono, Clave Electoral o domicilio..."></label>
         <label>Gestor<select formControlName="manager_id"><option value="">Todos</option>@for(manager of managers(); track manager.id) {<option [value]="manager.id">{{manager.full_name}}</option>}</select></label>
         <label>Desde<input type="date" formControlName="date_from"></label>
         <label>Hasta<input type="date" formControlName="date_to"></label>
-        <label>Distrito<input formControlName="district"></label>
-        <label>Fraccionamiento<input formControlName="neighborhood"></label>
-        <label>C.P.<input formControlName="postal_code"></label>
+        <label>Domicilio<select formControlName="address"><option value="">{{filterOptionsLoading() ? 'Cargando domicilios...' : 'Todos'}}</option>@for(option of filterOptions().addresses; track option) {<option [value]="option">{{option}}</option>}</select></label>
+        <label>Distrito<select formControlName="district"><option value="">{{filterOptionsLoading() ? 'Cargando distritos...' : 'Todos'}}</option>@for(option of filterOptions().districts; track option) {<option [value]="option">{{option}}</option>}</select></label>
+        <label>Fraccionamiento<select formControlName="neighborhood"><option value="">{{filterOptionsLoading() ? 'Cargando fraccionamientos...' : 'Todos'}}</option>@for(option of filterOptions().neighborhoods; track option) {<option [value]="option">{{option}}</option>}</select></label>
+        <label>C.P.<select formControlName="postal_code"><option value="">{{filterOptionsLoading() ? 'Cargando C.P....' : 'Todos'}}</option>@for(option of filterOptions().postal_codes; track option) {<option [value]="option">{{option}}</option>}</select></label>
         <label>Mostrar<select [value]="pageSize()" (change)="changePageSize($any($event.target).value)"><option value="10">10</option><option value="25">25</option><option value="50">50</option><option value="100">100</option></select></label>
         <button>Filtrar</button><button type="button" class="secondary" (click)="clear()">Limpiar</button>
       </form>
@@ -242,16 +244,19 @@ export class AdminRecordsComponent implements OnInit {
   private route = inject(ActivatedRoute);
   managers = signal<AdminManagerRow[]>([]);
   records = signal<RecordItem[]>([]);
+  filterOptionsLoading = signal(true);
+  filterOptions = signal<{addresses: string[]; districts: string[]; neighborhoods: string[]; postal_codes: string[]}>({ addresses: [], districts: [], neighborhoods: [], postal_codes: [] });
   total = signal(0);
   currentPage = signal(1);
   pageSize = signal(10);
   totalPages = computed(() => Math.max(1, Math.ceil(this.total() / this.pageSize())));
   filters = new FormGroup({
     q: new FormControl(''), manager_id: new FormControl(''), date_from: new FormControl(''), date_to: new FormControl(''),
-    district: new FormControl(''), neighborhood: new FormControl(''), postal_code: new FormControl('')
+    address: new FormControl(''), district: new FormControl(''), neighborhood: new FormControl(''), postal_code: new FormControl('')
   });
   ngOnInit() {
     this.api.get<{data: AdminManagerRow[]}>('/admin/managers').subscribe((response) => this.managers.set(response.data));
+    this.loadFilterOptions();
     const managerId = this.route.snapshot.queryParamMap.get('manager_id');
     if (managerId) this.filters.patchValue({ manager_id: managerId });
     this.load();
@@ -265,6 +270,10 @@ export class AdminRecordsComponent implements OnInit {
     this.api.download(`/exports/records?${queryString(cleanParams({ ...this.filters.getRawValue(), format }))}`).subscribe((blob) => saveBlob(blob, `registros-globales.${format}`));
   }
   dateTimeText(value: unknown) { return formatDateTimeText(value); }
+  private loadFilterOptions() {
+    this.filterOptionsLoading.set(true);
+    this.api.get<{data: {addresses: string[]; districts: string[]; neighborhoods: string[]; postal_codes: string[]}}>('/admin/record-filter-options').pipe(finalize(() => this.filterOptionsLoading.set(false))).subscribe((response) => this.filterOptions.set(response.data));
+  }
   private load() {
     this.api.get<ManagerRecordsResponse>('/admin/records', cleanParams({ ...this.filters.getRawValue(), page: this.currentPage(), limit: this.pageSize() })).subscribe((response) => {
       this.records.set(response.data);

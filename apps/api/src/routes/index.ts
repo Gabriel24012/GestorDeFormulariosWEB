@@ -160,6 +160,12 @@ router.get('/admin/managers/:id', authorize('admin'), async (req, res, next) => 
   } catch (e) { next(e); }
 });
 
+router.get('/admin/record-filter-options', authorize('admin'), async (req, res, next) => {
+  try {
+    res.json({ data: await recordFilterOptions() });
+  } catch (e) { next(e); }
+});
+
 router.get('/admin/records', authorize('admin'), async (req, res, next) => {
   try {
     const page = z.coerce.number().int().min(1).default(1).parse(req.query.page);
@@ -863,14 +869,21 @@ async function deleteDemoRecords(managerId: string) {
 }
 
 async function managerRecordFilterOptions(managerId: string) {
-  const { data, error } = await serviceDb
+  return recordFilterOptions(managerId);
+}
+
+async function recordFilterOptions(managerId?: string) {
+  let query = serviceDb
     .from('records')
-    .select('district,neighborhood')
-    .eq('manager_id', managerId);
+    .select('address,district,neighborhood,postal_code');
+  if (managerId) query = query.eq('manager_id', managerId);
+  const { data, error } = await query;
   if (error) throw error;
   return {
+    addresses: distinctSorted((data ?? []).map((record) => record.address)),
     districts: distinctSorted((data ?? []).map((record) => record.district)),
-    neighborhoods: distinctSorted((data ?? []).map((record) => record.neighborhood))
+    neighborhoods: distinctSorted((data ?? []).map((record) => record.neighborhood)),
+    postal_codes: distinctSorted((data ?? []).map((record) => record.postal_code))
   };
 }
 
@@ -981,6 +994,7 @@ function applyManagerRecordFilters<T extends {
   if (filters.capturer_id) next = next.eq('capturer_id', filters.capturer_id);
   if (filters.date_from) next = next.gte('created_at', zonedDateTimeToUtc(filters.date_from, 0, 0, 0).toISOString());
   if (filters.date_to) next = next.lte('created_at', zonedDateTimeToUtc(addDays(filters.date_to, 1), 0, 0, 0).toISOString());
+  if (filters.address) next = next.eq('address', filters.address);
   if (filters.district) next = next.eq('district', filters.district);
   if (filters.neighborhood) next = next.eq('neighborhood', filters.neighborhood);
   if (filters.postal_code) next = next.eq('postal_code', filters.postal_code);
@@ -1278,7 +1292,7 @@ function applyRecordSearch<T extends SearchableQuery<T>>(query: T, value: string
 }
 
 function applyManagerRecordSearch<T extends SearchableQuery<T>>(query: T, value: string) {
-  const fields = ['first_name', 'paternal_surname', 'maternal_surname', 'phone', 'electoral_key'];
+  const fields = ['first_name', 'paternal_surname', 'maternal_surname', 'phone', 'electoral_key', 'address', 'neighborhood', 'district', 'postal_code'];
   return applyTokenizedSearch(query, value, fields);
 }
 

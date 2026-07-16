@@ -68,6 +68,7 @@ export const managerRecordFiltersSchema = z.object({
   capturer_id: z.string().uuid('Capturador invalido.').optional(),
   date_from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha inicial invalida.').optional(),
   date_to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha final invalida.').optional(),
+  address: z.string().trim().min(1).optional(),
   district: z.string().trim().min(1).optional(),
   neighborhood: z.string().trim().min(1).optional(),
   postal_code: z.string().trim().regex(/^\d{5}$/, 'C.P. invalido.').optional(),

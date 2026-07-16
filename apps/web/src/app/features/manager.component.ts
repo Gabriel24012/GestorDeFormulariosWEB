@@ -219,13 +219,14 @@ export class ManagerCapturersComponent implements OnInit {
     </section>
     <section class="card records-filter-card">
       <form class="filters records-filters" [formGroup]="filters" (ngSubmit)="search()">
-        <label>Buscar<input formControlName="q" placeholder="Nombre o teléfono..."></label>
+        <label>Buscar<input formControlName="q" placeholder="Nombre, teléfono, Clave Electoral o domicilio..."></label>
         <label>Capturador<select formControlName="capturer_id"><option value="">{{capturersLoading() ? 'Cargando capturadores...' : 'Todos'}}</option>@for(c of capturers(); track c.id) {@if(c.kind === 'profile') {<option [value]="c.id">{{c.full_name}}</option>}}</select></label>
         <label>Desde<input type="date" formControlName="date_from"></label>
         <label>Hasta<input type="date" formControlName="date_to"></label>
+        <label>Domicilio<select formControlName="address"><option value="">{{filterOptionsLoading() ? 'Cargando domicilios...' : 'Todos'}}</option>@for(option of filterOptions().addresses; track option) {<option [value]="option">{{option}}</option>}</select></label>
         <label>Distrito<select formControlName="district"><option value="">{{filterOptionsLoading() ? 'Cargando distritos...' : 'Todos'}}</option>@for(option of filterOptions().districts; track option) {<option [value]="option">{{option}}</option>}</select></label>
         <label>Fraccionamiento<select formControlName="neighborhood"><option value="">{{filterOptionsLoading() ? 'Cargando fraccionamientos...' : 'Todos'}}</option>@for(option of filterOptions().neighborhoods; track option) {<option [value]="option">{{option}}</option>}</select></label>
-        <label>C.P.<input formControlName="postal_code"></label>
+        <label>C.P.<select formControlName="postal_code"><option value="">{{filterOptionsLoading() ? 'Cargando C.P....' : 'Todos'}}</option>@for(option of filterOptions().postal_codes; track option) {<option [value]="option">{{option}}</option>}</select></label>
         <label>Mostrar<select [value]="pageSize()" (change)="changePageSize($any($event.target).value)"><option value="10">10</option><option value="25">25</option><option value="50">50</option><option value="100">100</option></select></label>
         <button>Filtrar</button><button type="button" class="secondary" (click)="clear()">Limpiar</button>
       </form>
@@ -299,7 +300,7 @@ export class ManagerRecordsComponent implements OnInit {
   capturersLoading = signal(true);
   recordsLoading = signal(true);
   filterOptionsLoading = signal(true);
-  filterOptions = signal<{districts: string[]; neighborhoods: string[]}>({ districts: [], neighborhoods: [] });
+  filterOptions = signal<{addresses: string[]; districts: string[]; neighborhoods: string[]; postal_codes: string[]}>({ addresses: [], districts: [], neighborhoods: [], postal_codes: [] });
   editingRecord = signal<RecordItem | null>(null);
   recordMessage = signal('');
   recordError = signal('');
@@ -312,7 +313,7 @@ export class ManagerRecordsComponent implements OnInit {
   totalPages = computed(() => Math.max(1, Math.ceil(this.total() / this.pageSize())));
   filters = new FormGroup({
     q: new FormControl(''), capturer_id: new FormControl(''), date_from: new FormControl(''), date_to: new FormControl(''),
-    district: new FormControl(''), neighborhood: new FormControl(''), postal_code: new FormControl('')
+    address: new FormControl(''), district: new FormControl(''), neighborhood: new FormControl(''), postal_code: new FormControl('')
   });
   readonly minBirthDate = this.isoDateYearsAgo(120);
   readonly maxBirthDate = this.todayIsoDate();
@@ -458,7 +459,7 @@ export class ManagerRecordsComponent implements OnInit {
   }
   private loadFilterOptions() {
     this.filterOptionsLoading.set(true);
-    this.api.get<{data: {districts: string[]; neighborhoods: string[]}}>('/manager/record-filter-options').pipe(finalize(() => this.filterOptionsLoading.set(false))).subscribe((response) => this.filterOptions.set(response.data));
+    this.api.get<{data: {addresses: string[]; districts: string[]; neighborhoods: string[]; postal_codes: string[]}}>('/manager/record-filter-options').pipe(finalize(() => this.filterOptionsLoading.set(false))).subscribe((response) => this.filterOptions.set(response.data));
   }
   private restoreState() {
     try {
