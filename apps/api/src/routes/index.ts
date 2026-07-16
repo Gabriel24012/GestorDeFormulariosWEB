@@ -436,7 +436,8 @@ router.get('/record-suggestions', authorize('capturador', 'gestor', 'admin'), as
 router.post('/records', authorize('capturador'), async (req, res, next) => {
   try {
     const body = recordSchema.parse(req.body);
-    const payload = { ...body, birth_date: toIsoDate(body.birth_date) };
+    const captureSessionId = await ensureDefaultCaptureSession(req.auth!.profile);
+    const payload = { ...body, capture_session_id: captureSessionId, birth_date: toIsoDate(body.birth_date) };
     await assertNoDuplicateRecordFields(payload);
     const { data, error } = await req.auth!.db.from('records').insert(payload).select().single();
     if (error) throw error;
@@ -716,6 +717,42 @@ router.get('/exports/records', authorize('admin', 'gestor', 'capturador'), async
 
 async function audit(actorId: string, entity: string, entityId: string | null, action: string) {
   await serviceDb.from('audit_events').insert({ actor_id: actorId, entity, entity_id: entityId, action });
+}
+
+async function ensureDefaultCaptureSession(profile: { id: string; parent_user_id: string | null }) {
+  const { data: existing, error: existingError } = await serviceDb
+    .from('capture_sessions')
+    .select('id')
+    .eq('capturer_id', profile.id)
+    .eq('status', 'open')
+    .eq('section_code', 'GENERAL')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (existingError) throw existingError;
+  if (existing?.id) return existing.id as string;
+
+  if (!profile.parent_user_id) throw new Error('Capturador sin gestor asignado.');
+  const { data: manager, error: managerError } = await serviceDb
+    .from('profiles')
+    .select('id,full_name')
+    .eq('id', profile.parent_user_id)
+    .eq('role', 'gestor')
+    .single();
+  if (managerError || !manager) throw managerError ?? new Error('Gestor responsable invalido.');
+
+  const { data: created, error: createError } = await serviceDb
+    .from('capture_sessions')
+    .insert({
+      capturer_id: profile.id,
+      manager_id: manager.id,
+      leadership_name: manager.full_name,
+      section_code: 'GENERAL'
+    })
+    .select('id')
+    .single();
+  if (createError) throw createError;
+  return created.id as string;
 }
 
 async function sendActivationLink(email: string) {
