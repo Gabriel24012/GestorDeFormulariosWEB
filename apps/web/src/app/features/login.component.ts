@@ -15,19 +15,21 @@ const accountLabels: Record<string, string> = {
 @Component({
   standalone: true,
   imports: [ReactiveFormsModule],
-  template: `<section class="card login"><h1>Acceso al sistema</h1><p>Ingresa con tu cuenta asignada.</p><form [formGroup]="form" (ngSubmit)="submit()"><label>Correo<input type="email" formControlName="email" [disabled]="loading()">@if(issue('email')){<small class="field-error">{{issue('email')}}</small>}</label><label>Contraseña<input type="password" formControlName="password" [disabled]="loading()">@if(issue('password')){<small class="field-error">{{issue('password')}}</small>}</label>@if(form.invalid){<p class="form-hint">Completa correo y contraseña para entrar.</p>}@if(error()){<p class="error">{{error()}}</p>}@if(loading()){<div class="request-placeholder"><span class="skeleton-line"></span><span class="skeleton-line skeleton-short"></span></div>}<button [disabled]="loading()">{{loading() ? 'Entrando...' : 'Entrar'}}</button></form></section>`
+  template: `<section class="card login"><h1>Acceso al sistema</h1><p>Ingresa con tu cuenta asignada.</p><form [formGroup]="form" (ngSubmit)="submit()"><label>Correo<input type="email" formControlName="email" [disabled]="loading()">@if(issue('email')){<small class="field-error">{{issue('email')}}</small>}</label><label>Contraseña<input type="password" formControlName="password" [disabled]="loading()">@if(issue('password')){<small class="field-error">{{issue('password')}}</small>}</label>@if(submitted() && form.invalid){<p class="form-hint">Completa: {{missingText()}}</p>}@if(error()){<p class="error">{{error()}}</p>}@if(loading()){<div class="request-placeholder"><span class="skeleton-line"></span><span class="skeleton-line skeleton-short"></span></div>}<button [disabled]="loading()">{{loading() ? 'Entrando...' : 'Entrar'}}</button></form></section>`
 })
 export class LoginComponent {
   private auth = inject(AuthService);
   private router = inject(Router);
   error = signal('');
   loading = signal(false);
+  submitted = signal(false);
   form = new FormGroup({
     email: new FormControl('', { nonNullable: true, validators: [Validators.required, Validators.email] }),
     password: new FormControl('', { nonNullable: true, validators: [Validators.required] })
   });
 
   async submit() {
+    this.submitted.set(true);
     if (this.form.invalid) {
       this.form.markAllAsTouched();
       this.error.set('Revisa los campos marcados antes de iniciar sesión.');
@@ -49,16 +51,20 @@ export class LoginComponent {
   issue(field: string) {
     const control = this.form.get(field);
     if (!control?.invalid || (!control.touched && !control.dirty)) return '';
-    if (control.errors?.['required']) return `${accountLabels[field]} es obligatorio.`;
-    if (control.errors?.['email']) return 'Escribe un correo valido.';
+    if (control.errors?.['required']) return `${labelText(accountLabels[field])} es obligatorio.`;
+    if (control.errors?.['email']) return 'Escribe un correo válido.';
     return `Revisa ${accountLabels[field]}.`;
+  }
+
+  missingText() {
+    return Object.keys(this.form.controls).filter((field) => this.form.get(field)?.invalid).map((field) => labelText(accountLabels[field])).join(', ');
   }
 }
 
 @Component({
   standalone: true,
   imports: [ReactiveFormsModule],
-  template: `<section class="card login"><h1>Crea tu contraseña</h1><p>Define una contraseña para activar tu cuenta.</p><form [formGroup]="form" (ngSubmit)="submit()"><label>Nueva contraseña<input type="password" formControlName="password" autocomplete="new-password" [disabled]="loading()">@if(issue('password')){<small class="field-error">{{issue('password')}}</small>}</label><label>Confirmar contraseña<input type="password" formControlName="confirm" autocomplete="new-password" [disabled]="loading()">@if(issue('confirm')){<small class="field-error">{{issue('confirm')}}</small>}</label>@if(form.invalid){<p class="form-hint">Completa y confirma tu contraseña.</p>}@if(error()){<p class="error">{{error()}}</p>}@if(loading()){<div class="request-placeholder"><span class="skeleton-line"></span><span class="skeleton-line skeleton-short"></span></div>}<button [disabled]="loading()">{{loading() ? 'Activando...' : 'Activar cuenta'}}</button></form></section>`
+  template: `<section class="card login"><h1>Crea tu contraseña</h1><p>Define una contraseña para activar tu cuenta.</p><form [formGroup]="form" (ngSubmit)="submit()"><label>Nueva contraseña<input type="password" formControlName="password" autocomplete="new-password" [disabled]="loading()">@if(issue('password')){<small class="field-error">{{issue('password')}}</small>}</label><label>Confirmar contraseña<input type="password" formControlName="confirm" autocomplete="new-password" [disabled]="loading()">@if(issue('confirm')){<small class="field-error">{{issue('confirm')}}</small>}</label>@if(submitted() && form.invalid){<p class="form-hint">Completa: {{missingText()}}</p>}@if(error()){<p class="error">{{error()}}</p>}@if(loading()){<div class="request-placeholder"><span class="skeleton-line"></span><span class="skeleton-line skeleton-short"></span></div>}<button [disabled]="loading()">{{loading() ? 'Activando...' : 'Activar cuenta'}}</button></form></section>`
 })
 export class ConfirmAccountComponent {
   private auth = inject(AuthService);
@@ -66,12 +72,14 @@ export class ConfirmAccountComponent {
   private router = inject(Router);
   error = signal('');
   loading = signal(false);
+  submitted = signal(false);
   form = new FormGroup({
     password: new FormControl('', { nonNullable: true, validators: [Validators.required, Validators.minLength(8)] }),
     confirm: new FormControl('', { nonNullable: true, validators: [Validators.required] })
   });
 
   async submit() {
+    this.submitted.set(true);
     if (this.form.invalid) {
       this.form.markAllAsTouched();
       this.error.set('Revisa los campos marcados para activar tu cuenta.');
@@ -107,9 +115,14 @@ export class ConfirmAccountComponent {
   issue(field: string) {
     const control = this.form.get(field);
     if (!control?.invalid || (!control.touched && !control.dirty)) return '';
-    if (control.errors?.['required']) return `${field === 'confirm' ? 'confirmación' : accountLabels[field]} es obligatoria.`;
+    if (control.errors?.['required']) return `${labelText(field === 'confirm' ? 'confirmación' : accountLabels[field])} es obligatoria.`;
     if (control.errors?.['minlength']) return 'La contraseña debe tener al menos 8 caracteres.';
     return `Revisa ${field}.`;
+  }
+
+  missingText() {
+    const labels: Record<string, string> = { password: 'Nueva contraseña', confirm: 'Confirmar contraseña' };
+    return Object.keys(this.form.controls).filter((field) => this.form.get(field)?.invalid).map((field) => labels[field]).join(', ');
   }
 }
 
@@ -127,7 +140,7 @@ export class ConfirmAccountComponent {
         <label>Correo<input type="email" formControlName="email" [disabled]="submitting()">@if(issue('email')){<small class="field-error">{{issue('email')}}</small>}</label>
         <label>Contraseña<input type="password" formControlName="password" autocomplete="new-password" [disabled]="submitting()">@if(issue('password')){<small class="field-error">{{issue('password')}}</small>}</label>
         <label>Confirmar contraseña<input type="password" formControlName="confirm" autocomplete="new-password" [disabled]="submitting()">@if(issue('confirm')){<small class="field-error">{{issue('confirm')}}</small>}</label>
-        @if(form.invalid){<p class="form-hint">Completa nombre, correo y contraseña para crear la cuenta.</p>}
+        @if(submitted() && form.invalid){<p class="form-hint">Completa: {{missingText()}}</p>}
         @if(error()){<p class="error">{{error()}}</p>}
         @if(submitting()){<div class="request-placeholder"><span class="skeleton-line"></span><span class="skeleton-line skeleton-short"></span></div>}
         <button [disabled]="submitting()">{{submitting() ? 'Creando cuenta...' : 'Crear cuenta'}}</button>
@@ -144,6 +157,7 @@ export class InviteSignupComponent implements OnInit {
   inviteInfo = signal<{placeholder_name: string; manager_name: string | null} | null>(null);
   inviteInfoLoading = signal(true);
   submitting = signal(false);
+  submitted = signal(false);
   form = new FormGroup({
     full_name: new FormControl('', { nonNullable: true, validators: Validators.required }),
     email: new FormControl('', { nonNullable: true, validators: [Validators.required, Validators.email] }),
@@ -160,6 +174,7 @@ export class InviteSignupComponent implements OnInit {
   }
 
   submit() {
+    this.submitted.set(true);
     if (this.form.invalid) {
       this.form.markAllAsTouched();
       this.error.set('Revisa los campos marcados para crear tu cuenta.');
@@ -188,9 +203,18 @@ export class InviteSignupComponent implements OnInit {
   issue(field: string) {
     const control = this.form.get(field);
     if (!control?.invalid || (!control.touched && !control.dirty)) return '';
-    if (control.errors?.['required']) return `${field === 'confirm' ? 'confirmación' : accountLabels[field]} es obligatorio.`;
-    if (control.errors?.['email']) return 'Escribe un correo valido.';
+    if (control.errors?.['required']) return `${labelText(field === 'confirm' ? 'confirmación' : accountLabels[field])} es obligatorio.`;
+    if (control.errors?.['email']) return 'Escribe un correo válido.';
     if (control.errors?.['minlength']) return 'La contraseña debe tener al menos 8 caracteres.';
     return `Revisa ${field}.`;
   }
+
+  missingText() {
+    const labels: Record<string, string> = { full_name: 'Nombre completo', email: 'Correo', password: 'Contraseña', confirm: 'Confirmar contraseña' };
+    return Object.keys(this.form.controls).filter((field) => this.form.get(field)?.invalid).map((field) => labels[field]).join(', ');
+  }
+}
+
+function labelText(value: string) {
+  return value ? value.charAt(0).toUpperCase() + value.slice(1) : value;
 }

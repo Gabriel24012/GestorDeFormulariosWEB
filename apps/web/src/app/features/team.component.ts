@@ -32,8 +32,8 @@ const teamLabels: Record<string, string> = {
           } @else {
             <label>Nombre para identificar gestor<input formControlName="placeholder_name" [disabled]="creatingManager()">@if(issue(adminForm, 'placeholder_name')){<small class="field-error">{{issue(adminForm, 'placeholder_name')}}</small>}</label>
           }
-          @if (editingManagerId() && adminForm.controls.full_name.invalid) {<p class="form-hint">Completa: {{missingText(adminForm, ['full_name'])}}</p>}
-          @if (!editingManagerId() && adminForm.controls.placeholder_name.invalid) {<p class="form-hint">Completa: {{missingText(adminForm, ['placeholder_name'])}}</p>}
+          @if (editingManagerId() && showIssue(adminForm, 'full_name')) {<p class="form-hint">Completa: {{missingText(adminForm, ['full_name'])}}</p>}
+          @if (!editingManagerId() && showIssue(adminForm, 'placeholder_name')) {<p class="form-hint">Completa: {{missingText(adminForm, ['placeholder_name'])}}</p>}
           @if(creatingManager()) {<div class="request-placeholder"><span class="skeleton-line"></span><span class="skeleton-line skeleton-short"></span></div>}
           <div class="form-actions">
             <button [disabled]="creatingManager()">{{creatingManager() ? 'Guardando...' : editingManagerId() ? 'Guardar cambios' : 'Generar link'}}</button>
@@ -52,7 +52,7 @@ const teamLabels: Record<string, string> = {
         <h2>Nuevo Capturador</h2>
         <form [formGroup]="inviteForm" (ngSubmit)="createInviteLink()">
           <label>Nombre para identificar capturador<input formControlName="placeholder_name" [disabled]="creatingInvite()">@if(issue(inviteForm, 'placeholder_name')){<small class="field-error">{{issue(inviteForm, 'placeholder_name')}}</small>}</label>
-          @if (inviteForm.invalid) {<p class="form-hint">Completa: {{missingText(inviteForm, ['placeholder_name'])}}</p>}
+          @if (showIssue(inviteForm, 'placeholder_name')) {<p class="form-hint">Completa: {{missingText(inviteForm, ['placeholder_name'])}}</p>}
           @if(creatingInvite()) {<div class="request-placeholder"><span class="skeleton-line"></span><span class="skeleton-line skeleton-short"></span></div>}
           <button [disabled]="creatingInvite()">{{creatingInvite() ? 'Generando link...' : 'Generar link'}}</button>
         </form>
@@ -140,7 +140,7 @@ export class TeamComponent implements OnInit {
   saveManager() {
     if (this.adminForm.controls.full_name.invalid) {
       this.adminForm.controls.full_name.markAsTouched();
-      this.error.set('Revisa los campos marcados antes de enviar la invitacion.');
+      this.error.set('Revisa los campos marcados antes de enviar la invitación.');
       return;
     }
     this.creatingManager.set(true);
@@ -151,7 +151,7 @@ export class TeamComponent implements OnInit {
     request.pipe(finalize(() => this.creatingManager.set(false))).subscribe({
       next: () => {
         this.error.set('');
-        this.message.set(this.editingManagerId() ? 'Gestor actualizado correctamente.' : 'Invitacion enviada correctamente.');
+        this.message.set(this.editingManagerId() ? 'Gestor actualizado correctamente.' : 'Invitación enviada correctamente.');
         this.editingManagerId.set('');
         this.adminForm.controls.email.enable();
         this.adminForm.reset();
@@ -263,10 +263,19 @@ export class TeamComponent implements OnInit {
     return `Revisa ${teamLabels[field] ?? field}.`;
   }
 
+  showIssue(form: FormGroup, field: string) {
+    const control = form.get(field);
+    return !!control?.invalid && (control.touched || control.dirty);
+  }
+
   missingText(form: FormGroup, fields: string[]) {
     return fields
       .filter((field) => form.get(field)?.invalid)
-      .map((field) => teamLabels[field] ?? field)
+      .map((field) => capitalize(teamLabels[field] ?? field))
       .join(', ');
   }
+}
+
+function capitalize(value: string) {
+  return value ? value.charAt(0).toUpperCase() + value.slice(1) : value;
 }

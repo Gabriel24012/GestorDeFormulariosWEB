@@ -11,16 +11,16 @@ import { apiErrorMessage } from '../core/api-errors';
   imports: [ReactiveFormsModule],
   template: `
     <h1>Captura de registros</h1>
+    <section class="leadership-banner">
+      <small>Liderazgo</small>
+      <strong>{{context()?.leadership_name || 'Cargando...'}}</strong>
+    </section>
     <div class="capture-layout">
       <section class="card">
         <div class="step-title">
           <span>1</span>
           <div class="step-heading">
             <h2>{{editingRecord() ? 'Editar registro' : 'Registro ciudadano'}}</h2>
-            <p class="leadership-chip">
-              <small>Liderazgo</small>
-              <strong>{{context()?.leadership_name || 'Cargando...'}}</strong>
-            </p>
           </div>
         </div>
 
@@ -62,7 +62,7 @@ import { apiErrorMessage } from '../core/api-errors';
           </datalist>
           @if(message()){<p class="success">{{message()}}</p>}
           @if(error()){<p class="error">{{error()}}</p>}
-          @if (recordForm.invalid) {<p class="form-hint">Revisa: {{recordMissingText()}}</p>}
+          @if ((recordForm.touched || recordForm.dirty) && recordForm.invalid) {<p class="form-hint">Revisa: {{recordMissingText()}}</p>}
           <div class="form-actions">
             <button>{{editingRecord() ? 'Guardar cambios' : 'Guardar registro'}}</button>
             @if (editingRecord()) {
@@ -310,8 +310,8 @@ export class CaptureComponent implements OnInit {
   recordMissingText() {
     return Object.keys(this.labels).filter((key) => this.recordForm.get(key)?.invalid).map((key) => {
       const control = this.recordForm.get(key);
-      if (control?.errors?.['birthDateRange']) return 'fecha de nacimiento valida';
-      return control?.errors?.['pattern'] ? this.patternMessage(key) : this.labels[key];
+      if (control?.errors?.['birthDateRange']) return 'Fecha de nacimiento válida';
+      return capitalize(control?.errors?.['pattern'] ? this.patternMessage(key) : this.labels[key]);
     }).join(', ');
   }
 
@@ -451,4 +451,8 @@ export class CaptureComponent implements OnInit {
     if (key === 'electoral_key') return 'clave electoral debe tener 18 letras o numeros';
     return 'formato inválido';
   }
+}
+
+function capitalize(value: string) {
+  return value ? value.charAt(0).toUpperCase() + value.slice(1) : value;
 }

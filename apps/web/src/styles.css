@@ -202,6 +202,8 @@ main {
 }
 .footer-legal {
   justify-content: center;
+  flex-direction: column;
+  gap: .25rem;
   text-align: center;
 }
 .footer-version {
@@ -287,29 +289,29 @@ select:disabled {
   gap: .65rem;
   min-width: 0;
 }
-.leadership-chip {
-  display: inline-grid;
+.leadership-banner {
+  display: grid;
   gap: .15rem;
   width: fit-content;
   max-width: 100%;
-  margin: 0;
-  padding: .55rem .7rem;
+  margin: -.5rem 0 1rem;
+  padding: .7rem .85rem;
   border: 1px solid #bfd4ec;
   border-radius: .55rem;
   background: var(--blue-softest);
   color: var(--ink);
 }
-.leadership-chip small {
+.leadership-banner small {
   color: var(--blue-text);
   font-size: .72rem;
   font-weight: 800;
   letter-spacing: 0;
   text-transform: uppercase;
 }
-.leadership-chip strong {
+.leadership-banner strong {
   overflow-wrap: anywhere;
   color: var(--ink);
-  font-size: .95rem;
+  font-size: 1rem;
   line-height: 1.25;
 }
 .form-tabs {
@@ -954,7 +956,7 @@ td {
     overflow-wrap: anywhere;
   }
   .step-heading,
-  .leadership-chip {
+  .leadership-banner {
     width: 100%;
   }
   .form-tabs {
