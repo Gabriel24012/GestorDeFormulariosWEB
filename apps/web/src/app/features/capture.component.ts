@@ -95,7 +95,7 @@ import { apiErrorMessage } from '../core/api-errors';
               <option value="50">50</option>
             </select>
           </label>
-          <span>Pagina {{currentPage()}} de {{totalPages()}}</span>
+          <span>Página {{currentPage()}} de {{totalPages()}}</span>
         </div>
 
         <div class="record-list">
@@ -162,9 +162,9 @@ export class CaptureComponent implements OnInit {
     {key: 'exterior_number', label: 'No. EXT', type: 'text', placeholder: ''},
     {key: 'neighborhood', label: 'Fraccionamiento', type: 'text', placeholder: ''},
     {key: 'district', label: 'Distrito', type: 'text', placeholder: ''},
-    {key: 'postal_code', label: 'C.P.', type: 'text', placeholder: '5 digitos'},
+    {key: 'postal_code', label: 'C.P.', type: 'text', placeholder: '5 dígitos'},
     {key: 'birth_date', label: 'Fecha de nacimiento', type: 'date', placeholder: '', min: this.minBirthDate, max: this.maxBirthDate},
-    {key: 'phone', label: 'Telefono', type: 'tel', placeholder: '10 digitos'},
+    {key: 'phone', label: 'Teléfono', type: 'tel', placeholder: '10 dígitos'},
     {key: 'electoral_key', label: 'Clave electoral', type: 'text', placeholder: '18 caracteres'}
   ];
 
@@ -265,8 +265,8 @@ export class CaptureComponent implements OnInit {
     const current = this.editingRecord();
     if (!current) return;
     const name = `${current.first_name} ${current.paternal_surname}`;
-    if (!window.confirm(`Vas a eliminar el registro de ${name}. Esta accion no se puede deshacer. Deseas continuar?`)) return;
-    if (!window.confirm('Confirma por segunda vez: seguro que quieres eliminar definitivamente este registro?')) return;
+    if (!window.confirm(`Vas a eliminar el registro de ${name}. Esta acción no se puede deshacer. ¿Deseas continuar?`)) return;
+    if (!window.confirm('Confirma por segunda vez: ¿seguro que quieres eliminar definitivamente este registro?')) return;
     this.api.delete<void>(`/records/${current.id}`).subscribe({
       next: () => {
         this.error.set('');
@@ -442,10 +442,10 @@ export class CaptureComponent implements OnInit {
   }
 
   private patternMessage(key: string) {
-    if (key === 'postal_code') return 'C.P. debe tener 5 digitos';
+    if (key === 'postal_code') return 'C.P. debe tener 5 dígitos';
     if (key === 'birth_date') return 'fecha debe ir como dd/MM/aaaa';
-    if (key === 'phone') return 'telefono debe tener 10 digitos';
+    if (key === 'phone') return 'teléfono debe tener 10 dígitos';
     if (key === 'electoral_key') return 'clave electoral debe tener 18 letras o numeros';
-    return 'formato invalido';
+    return 'formato inválido';
   }
 }

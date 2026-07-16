@@ -13,7 +13,7 @@ export function apiErrorMessage(error: unknown, labels: Record<string, string> =
   if (fieldMessages.length) return fieldMessages.join('. ');
   if (body.details?.formErrors?.length) return body.details.formErrors.join('. ');
   if (body.field) return `${labels[body.field] ?? body.field}: ${body.error ?? 'revisa este campo'}`;
-  return body.error ?? body.message ?? 'No fue posible completar la accion.';
+  return body.error ?? body.message ?? 'No fue posible completar la acción.';
 }
 
 export function apiErrorBody(error: unknown): ApiErrorBody {

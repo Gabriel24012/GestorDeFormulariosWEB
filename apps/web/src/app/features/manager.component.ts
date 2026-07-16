@@ -37,7 +37,7 @@ const adminGoalSeenKey = 'manager-admin-goal-seen-v1';
         <section class="card admin-goal-notice">
           <div>
             <strong>Meta asignada por administrador</strong>
-            <p>Se te asigno una meta {{periodLabel(goal.period_type)}} de {{goal.target_count}} registros con vigencia del {{goal.starts_on}} al {{goal.ends_on}}.</p>
+            <p>Se te asignó una meta {{periodLabel(goal.period_type)}} de {{goal.target_count}} registros con vigencia del {{dateText(goal.starts_on)}} al {{dateText(goal.ends_on)}}.</p>
           </div>
           <button type="button" class="secondary" (click)="dismissAdminGoalNotice(goal.id)">Entendido</button>
         </section>
@@ -60,7 +60,7 @@ const adminGoalSeenKey = 'manager-admin-goal-seen-v1';
           <h2>Meta del administrador</h2>
           @if(d.admin_goal?.progress; as progress) {
             <strong>{{progress.count}} / {{progress.target}}</strong>
-            <span>{{periodLabel(d.admin_goal!.period_type)}} - {{d.admin_goal!.starts_on}} a {{d.admin_goal!.ends_on}}</span>
+            <span>{{periodLabel(d.admin_goal!.period_type)}} - {{dateText(d.admin_goal!.starts_on)}} a {{dateText(d.admin_goal!.ends_on)}}</span>
             <div class="progress"><span [style.width.%]="barWidth(progress.percentage)"></span></div>
             <small>{{progress.percentage}}% - {{progress.status}}</small>
           } @else {
@@ -72,7 +72,7 @@ const adminGoalSeenKey = 'manager-admin-goal-seen-v1';
           <h2>Meta propia del equipo</h2>
           @if(d.team_goal?.progress; as progress) {
             <strong>{{progress.count}} / {{progress.target}}</strong>
-            <span>{{periodLabel(d.team_goal!.period_type)}} - {{d.team_goal!.starts_on}} a {{d.team_goal!.ends_on}}</span>
+            <span>{{periodLabel(d.team_goal!.period_type)}} - {{dateText(d.team_goal!.starts_on)}} a {{dateText(d.team_goal!.ends_on)}}</span>
             <div class="progress"><span [style.width.%]="barWidth(progress.percentage)"></span></div>
             <small>{{progress.percentage}}% - {{progress.status}}</small>
           } @else {
@@ -85,11 +85,11 @@ const adminGoalSeenKey = 'manager-admin-goal-seen-v1';
         <article class="card">
           <h2>Ranking de capturadores</h2>
           <table>
-            <thead><tr><th>Capturador</th><th>Registros</th><th>Ultima captura</th></tr></thead>
+            <thead><tr><th>Capturador</th><th>Registros</th><th>Última captura</th></tr></thead>
             <tbody>
               @for(item of d.ranking; track item.id) {
-                <tr><td>{{item.full_name}}</td><td>{{item.total_records}}</td><td>{{item.last_record_at ? (item.last_record_at | date:'short') : 'Sin registros'}}</td></tr>
-              } @empty { <tr><td colspan="3">Sin capturadores todavia.</td></tr> }
+                <tr><td>{{item.full_name}}</td><td>{{item.total_records}}</td><td>{{dateTimeText(item.last_record_at)}}</td></tr>
+              } @empty { <tr><td colspan="3">Sin capturadores todavía.</td></tr> }
             </tbody>
           </table>
         </article>
@@ -101,7 +101,7 @@ const adminGoalSeenKey = 'manager-admin-goal-seen-v1';
             <tbody>
               @for(zone of d.top_zones; track zone.zone) {
                 <tr><td>{{zone.zone}}</td><td>{{zone.total}}</td></tr>
-              } @empty { <tr><td colspan="2">Sin zonas todavia.</td></tr> }
+              } @empty { <tr><td colspan="2">Sin zonas todavía.</td></tr> }
             </tbody>
           </table>
         </article>
@@ -112,7 +112,7 @@ const adminGoalSeenKey = 'manager-admin-goal-seen-v1';
             @for(item of d.inactive_alerts; track item.id) {
               <a class="alert-row" [routerLink]="['/gestor/capturadores', item.id]">
                 <strong>{{item.full_name}}</strong>
-                <span>{{item.last_record_at ? ('Ultima captura: ' + (item.last_record_at | date:'short')) : 'Sin registros capturados'}}</span>
+                <span>{{item.last_record_at ? ('Última captura: ' + dateTimeText(item.last_record_at)) : 'Sin registros capturados'}}</span>
               </a>
             } @empty { <p class="muted">No hay alertas por inactividad.</p> }
           </div>
@@ -134,6 +134,8 @@ export class ManagerDashboardComponent implements OnInit {
   }
   periodLabel(period: GoalPeriod) { return periodLabels[period]; }
   barWidth(value: number) { return Math.min(value, 100); }
+  dateText(value: string | null | undefined) { return formatDateText(value); }
+  dateTimeText(value: string | null | undefined) { return formatDateTimeText(value); }
   dismissAdminGoalNotice(goalId: string) {
     localStorage.setItem(adminGoalSeenKey, goalId);
     this.adminGoalNotice.set(null);
@@ -256,11 +258,11 @@ export class ManagerCapturersComponent implements OnInit {
       @if(recordsLoading()) {
         <p class="muted"><span class="skeleton-line skeleton-summary"></span></p>
       } @else {
-        <p class="muted">{{total()}} registros encontrados. Pagina {{currentPage()}} de {{totalPages()}}</p>
+        <p class="muted">{{total()}} registros encontrados. Página {{currentPage()}} de {{totalPages()}}</p>
       }
       <div class="records-table-scroll">
         <table class="records-table">
-          <thead><tr><th>Fecha</th><th>Capturador</th><th>Nombre</th><th>Telefono</th><th>Clave</th><th>Domicilio</th><th>No. EXT</th><th>Fracc.</th><th>Distrito</th><th>C.P.</th><th>Obs.</th></tr></thead>
+          <thead><tr><th>Fecha</th><th>Capturador</th><th>Nombre</th><th>Teléfono</th><th>Clave</th><th>Domicilio</th><th>No. EXT</th><th>Fracc.</th><th>Distrito</th><th>C.P.</th><th>Obs.</th></tr></thead>
           <tbody>
             @if(recordsLoading()) {
               @for(row of [1,2,3,4,5]; track row) {
@@ -269,7 +271,7 @@ export class ManagerCapturersComponent implements OnInit {
             } @else {
               @for(record of records(); track record.id) {
               <tr class="clickable-row" [class.active]="editingRecord()?.id === record.id" (click)="editRecord(record)">
-                <td>{{record.created_at | date:'short'}}</td>
+                <td>{{dateTimeText(record.created_at)}}</td>
                 <td>{{record.capturer?.full_name || '-'}}</td>
                 <td>{{record.first_name}} {{record.paternal_surname}} {{record.maternal_surname || ''}}</td>
                 <td>{{record.phone}}</td>
@@ -336,9 +338,9 @@ export class ManagerRecordsComponent implements OnInit {
     {key: 'exterior_number', label: 'No. EXT', type: 'text', placeholder: ''},
     {key: 'neighborhood', label: 'Fraccionamiento', type: 'text', placeholder: ''},
     {key: 'district', label: 'Distrito', type: 'text', placeholder: ''},
-    {key: 'postal_code', label: 'C.P.', type: 'text', placeholder: '5 digitos'},
+    {key: 'postal_code', label: 'C.P.', type: 'text', placeholder: '5 dígitos'},
     {key: 'birth_date', label: 'Fecha de nacimiento', type: 'date', placeholder: '', min: this.minBirthDate, max: this.maxBirthDate},
-    {key: 'phone', label: 'Telefono', type: 'tel', placeholder: '10 digitos'},
+    {key: 'phone', label: 'Teléfono', type: 'tel', placeholder: '10 dígitos'},
     {key: 'electoral_key', label: 'Clave electoral', type: 'text', placeholder: '18 caracteres'}
   ];
   private recordLabels: Record<string, string> = {
@@ -519,10 +521,10 @@ export class ManagerRecordsComponent implements OnInit {
     return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
   }
   private patternMessage(key: string) {
-    if (key === 'postal_code') return 'C.P. debe tener 5 digitos';
-    if (key === 'phone') return 'telefono debe tener 10 digitos';
+    if (key === 'postal_code') return 'C.P. debe tener 5 dígitos';
+    if (key === 'phone') return 'teléfono debe tener 10 dígitos';
     if (key === 'electoral_key') return 'clave electoral debe tener 18 letras o numeros';
-    return 'formato invalido';
+    return 'formato inválido';
   }
 }
 
@@ -559,7 +561,7 @@ export class ManagerRecordsComponent implements OnInit {
           }
         } @else {
           @for(goal of items; track goal.id) {
-            <tr [class.admin-goal-row]="goal.created_by_role === 'admin'"><td>{{goalTargetText(goal)}}</td><td><span class="goal-pill" [class.admin-goal]="goal.created_by_role === 'admin'">{{goal.created_by_role === 'admin' ? 'Admin' : 'Gestor'}}</span></td><td>{{periodLabel(goal.period_type)}}</td><td>{{goal.target_count}}</td><td><span class="date-range">{{goal.starts_on}}<small>a</small>{{goal.ends_on}}</span></td><td><div class="progress"><span [style.width.%]="barWidth(goal.progress?.percentage || 0)"></span></div><small>{{goalProgressText(goal)}}</small></td><td><div class="row-actions">@if(goal.status === 'active' && !goal.archived_at) {<button class="secondary action-button" (click)="edit(goal)">Editar</button>}<button type="button" class="danger action-button" (click)="deleteGoal(goal)">Eliminar</button></div></td></tr>
+            <tr [class.admin-goal-row]="goal.created_by_role === 'admin'"><td>{{goalTargetText(goal)}}</td><td><span class="goal-pill" [class.admin-goal]="goal.created_by_role === 'admin'">{{goal.created_by_role === 'admin' ? 'Admin' : 'Gestor'}}</span></td><td>{{periodLabel(goal.period_type)}}</td><td>{{goal.target_count}}</td><td><span class="date-range">{{dateText(goal.starts_on)}}<small>a</small>{{dateText(goal.ends_on)}}</span></td><td><div class="progress"><span [style.width.%]="barWidth(goal.progress?.percentage || 0)"></span></div><small>{{goalProgressText(goal)}}</small></td><td><div class="row-actions">@if(goal.status === 'active' && !goal.archived_at) {<button class="secondary action-button" (click)="edit(goal)">Editar</button>}<button type="button" class="danger action-button" (click)="deleteGoal(goal)">Eliminar</button></div></td></tr>
           } @empty { <tr><td colspan="7">Sin metas.</td></tr> }
         }
       </tbody></table>
@@ -598,7 +600,7 @@ export class ManagerGoalsComponent implements OnInit {
   }
   cancelEdit() { this.editingId.set(''); this.form.reset({ capturer_id: '', period_type: 'weekly', target_count: 1, starts_on: localDateInputValue(), ends_on: '' }); }
   deleteGoal(goal: CapturerGoal) {
-    if (!window.confirm(`Eliminar la meta de ${this.goalTargetText(goal)}? Esta accion no se puede deshacer.`)) return;
+    if (!window.confirm(`¿Eliminar la meta de ${this.goalTargetText(goal)}? Esta acción no se puede deshacer.`)) return;
     this.api.delete<void>(`/manager/goals/${goal.id}`).subscribe({
       next: () => { this.message.set('Meta eliminada correctamente.'); this.error.set(''); this.load(); },
       error: (e) => this.error.set(apiErrorMessage(e))
@@ -610,6 +612,7 @@ export class ManagerGoalsComponent implements OnInit {
   }
   periodLabel(period: GoalPeriod) { return periodLabels[period]; }
   barWidth(value: number) { return Math.min(value, 100); }
+  dateText(value: string | null | undefined) { return formatDateText(value); }
   goalTargetText(goal: CapturerGoal) { return goal.capturer_id ? (goal.capturer?.full_name || '-') : 'Todo el equipo'; }
   goalProgressText(goal: CapturerGoal) {
     return goal.progress ? `${goal.progress.count} / ${goal.progress.target} - ${goal.progress.percentage}% - ${goal.progress.status}` : '0 / 0 - 0% - -';
@@ -645,8 +648,8 @@ export class ManagerGoalsComponent implements OnInit {
         </div>
       </section>
       <section class="split-grid">
-        <article class="card"><h2>Registros recientes</h2><div class="record-list">@for(record of d.recent_records; track record.id) {<div class="record-row"><strong>{{record.first_name}} {{record.paternal_surname}}</strong><span>{{record.phone}}</span><small>{{record.created_at | date:'short'}}</small></div>} @empty {<p class="muted">Sin registros recientes.</p>}</div></article>
-        <article class="card"><h2>Zonas principales</h2><table><thead><tr><th>Zona</th><th>Registros</th></tr></thead><tbody>@for(zone of d.top_zones; track zone.zone) {<tr><td>{{zone.zone}}</td><td>{{zone.total}}</td></tr>} @empty {<tr><td colspan="2">Sin zonas todavia.</td></tr>}</tbody></table></article>
+        <article class="card"><h2>Registros recientes</h2><div class="record-list">@for(record of d.recent_records; track record.id) {<div class="record-row"><strong>{{record.first_name}} {{record.paternal_surname}}</strong><span>{{record.phone}}</span><small>{{dateTimeText(record.created_at)}}</small></div>} @empty {<p class="muted">Sin registros recientes.</p>}</div></article>
+        <article class="card"><h2>Zonas principales</h2><table><thead><tr><th>Zona</th><th>Registros</th></tr></thead><tbody>@for(zone of d.top_zones; track zone.zone) {<tr><td>{{zone.zone}}</td><td>{{zone.total}}</td></tr>} @empty {<tr><td colspan="2">Sin zonas todavía.</td></tr>}</tbody></table></article>
       </section>
     }
     @if(message()) {<p class="success">{{message()}}</p>}
@@ -661,6 +664,7 @@ export class ManagerCapturerDetailComponent implements OnInit {
   error = signal('');
   ngOnInit() { this.load(); }
   barWidth(value: number) { return Math.min(value, 100); }
+  dateTimeText(value: unknown) { return formatDateTimeText(value); }
   load() {
     this.api.get<{data: any}>(`/manager/capturers/${this.route.snapshot.paramMap.get('id')}`).subscribe({ next: (response) => this.detail.set(response.data), error: (e) => this.error.set(apiErrorMessage(e)) });
   }
@@ -693,4 +697,24 @@ function localDateInputValue(date = new Date()) {
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+}
+
+function formatDateText(value: string | null | undefined) {
+  if (!value) return '-';
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat('es-MX', { day: 'numeric', month: 'long', year: 'numeric' }).format(date);
+}
+
+function formatDateTimeText(value: unknown) {
+  if (!value) return 'Sin registros';
+  const date = new Date(String(value));
+  if (Number.isNaN(date.getTime())) return String(value);
+  return new Intl.DateTimeFormat('es-MX', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit'
+  }).format(date);
 }

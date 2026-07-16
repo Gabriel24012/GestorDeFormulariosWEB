@@ -11,7 +11,7 @@ import { AuthService } from './core/auth.service';
   <div class="header-main">
     <a routerLink="/" class="brand" (click)="closeMenu()">
       <img src="/pan-logo.png" alt="PAN">
-      <span>Gestion de Captura</span>
+      <span>Gestión de Captura</span>
     </a>
     @if (auth.profile()) {
       <button
@@ -44,19 +44,20 @@ import { AuthService } from './core/auth.service';
 </header>
 @if (auth.sessionWarningVisible() && auth.profile()) {
   <section class="session-alert">
-    <span>Tu sesion vence en {{auth.sessionMinutesRemaining()}} min.</span>
-    <button (click)="extendSession()">Alargar sesion</button>
+    <span>Tu sesión vence en {{auth.sessionMinutesRemaining()}} min.</span>
+    <button (click)="extendSession()">Alargar sesión</button>
   </section>
 }
 <main><router-outlet/></main>
 <footer class="site-footer">
   <div>
-    <strong>Gestion de Captura</strong>
-    <span>Sistema interno de seguimiento y registros.</span>
+    <strong>© 2026 todos los derechos reservados.</strong>
+    <span>Uso exclusivo para personal autorizado.</span>
   </div>
   <div>
-    <span>© 2026</span>
-    <span>Soporte: contacta a tu administrador.</span>
+    <span>Soporte: porto1472@gmail.com</span>
+    <span>4491985370</span>
+    <span>Versión 1.0.0</span>
   </div>
 </footer>`
 })

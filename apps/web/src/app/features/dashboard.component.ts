@@ -61,7 +61,7 @@ interface AdminGoal {
                     <div class="progress"><span [style.width.%]="barWidth(goal.progress?.percentage || 0)"></span></div>
                   } @else { <span class="muted">Sin meta</span> }
                 </td>
-                <td>{{manager.last_activity_at ? (manager.last_activity_at | date:'short') : 'Sin registros'}}</td>
+                <td>{{dateTimeText(manager.last_activity_at)}}</td>
                 <td><a class="button-link" [routerLink]="['/admin/gestores', manager.id]">Ver detalle</a></td>
               </tr>
             } @empty { <tr><td colspan="6">No hay gestores registrados.</td></tr> }
@@ -120,7 +120,7 @@ export class AdminDashboardComponent implements OnInit {
               <tr [class.admin-goal-row]="goal.created_by_role === 'admin'">
                 <td><span class="goal-pill" [class.admin-goal]="goal.created_by_role === 'admin'">{{goal.created_by_role === 'admin' ? 'Admin' : 'Gestor'}}</span></td>
                 <td>{{periodLabel(goal.period_type)}} - {{goal.target_count}} registros</td>
-                <td><span class="date-range">{{goal.starts_on}}<small>a</small>{{goal.ends_on}}</span></td>
+                <td><span class="date-range">{{dateText(goal.starts_on)}}<small>a</small>{{dateText(goal.ends_on)}}</span></td>
                 <td><div class="progress"><span [style.width.%]="barWidth(goal.progress?.percentage || 0)"></span></div><small>{{goal.progress?.count || 0}} / {{goal.target_count}} - {{goal.progress?.percentage || 0}}%</small></td>
                 <td><div class="row-actions"><button class="secondary action-button" (click)="editGoal(goal)">Editar</button><button class="danger action-button" (click)="deleteGoal(goal)">Eliminar</button></div></td>
               </tr>
@@ -131,9 +131,9 @@ export class AdminDashboardComponent implements OnInit {
       <section class="split-grid">
         <article class="card">
           <h2>Ranking de capturadores</h2>
-          <table><thead><tr><th>Capturador</th><th>Registros</th><th>Ultima captura</th></tr></thead><tbody>
+          <table><thead><tr><th>Capturador</th><th>Registros</th><th>Última captura</th></tr></thead><tbody>
             @for(item of d.ranking; track item.id) {
-              <tr><td>{{item.full_name}}</td><td>{{item.total_records}}</td><td>{{item.last_record_at ? (item.last_record_at | date:'short') : 'Sin registros'}}</td></tr>
+              <tr><td>{{item.full_name}}</td><td>{{item.total_records}}</td><td>{{dateTimeText(item.last_record_at)}}</td></tr>
             } @empty { <tr><td colspan="3">Sin capturadores.</td></tr> }
           </tbody></table>
         </article>
@@ -167,6 +167,8 @@ export class AdminManagerDetailComponent implements OnInit {
   }
   periodLabel(period: GoalPeriod) { return periodLabels[period]; }
   barWidth(value: number) { return Math.min(value, 100); }
+  dateText(value: string | null | undefined) { return formatDateText(value); }
+  dateTimeText(value: string | null | undefined) { return formatDateTimeText(value); }
   editGoal(goal: AdminGoal) {
     this.editingGoalId.set(goal.id);
     this.goalError.set('');
@@ -220,13 +222,13 @@ export class AdminManagerDetailComponent implements OnInit {
       </form>
     </section>
     <section class="card table-card records-table-card">
-      <p class="muted">{{total()}} registros encontrados. Pagina {{currentPage()}} de {{totalPages()}}</p>
+      <p class="muted">{{total()}} registros encontrados. Página {{currentPage()}} de {{totalPages()}}</p>
       <div class="records-table-scroll">
         <table class="records-table">
-          <thead><tr><th>Fecha</th><th>Gestor</th><th>Capturador</th><th>Nombre</th><th>Telefono</th><th>Clave</th><th>Fracc.</th><th>Distrito</th><th>C.P.</th></tr></thead>
+          <thead><tr><th>Fecha</th><th>Gestor</th><th>Capturador</th><th>Nombre</th><th>Teléfono</th><th>Clave</th><th>Fracc.</th><th>Distrito</th><th>C.P.</th></tr></thead>
           <tbody>
             @for(record of records(); track record.id) {
-              <tr><td>{{record.created_at | date:'short'}}</td><td>{{record.manager?.full_name || '-'}}</td><td>{{record.capturer?.full_name || '-'}}</td><td>{{record.first_name}} {{record.paternal_surname}} {{record.maternal_surname || ''}}</td><td>{{record.phone}}</td><td>{{record.electoral_key}}</td><td>{{record.neighborhood || '-'}}</td><td>{{record.district || '-'}}</td><td>{{record.postal_code || '-'}}</td></tr>
+              <tr><td>{{dateTimeText(record.created_at)}}</td><td>{{record.manager?.full_name || '-'}}</td><td>{{record.capturer?.full_name || '-'}}</td><td>{{record.first_name}} {{record.paternal_surname}} {{record.maternal_surname || ''}}</td><td>{{record.phone}}</td><td>{{record.electoral_key}}</td><td>{{record.neighborhood || '-'}}</td><td>{{record.district || '-'}}</td><td>{{record.postal_code || '-'}}</td></tr>
             } @empty {<tr><td colspan="9">No hay registros con esos filtros.</td></tr>}
           </tbody>
         </table>
@@ -262,6 +264,7 @@ export class AdminRecordsComponent implements OnInit {
   download(format: 'csv'|'xlsx') {
     this.api.download(`/exports/records?${queryString(cleanParams({ ...this.filters.getRawValue(), format }))}`).subscribe((blob) => saveBlob(blob, `registros-globales.${format}`));
   }
+  dateTimeText(value: unknown) { return formatDateTimeText(value); }
   private load() {
     this.api.get<ManagerRecordsResponse>('/admin/records', cleanParams({ ...this.filters.getRawValue(), page: this.currentPage(), limit: this.pageSize() })).subscribe((response) => {
       this.records.set(response.data);
@@ -299,7 +302,7 @@ export class AdminRecordsComponent implements OnInit {
                 <td>{{manager.full_name}}</td>
                 <td><span class="goal-pill" [class.admin-goal]="goal.created_by_role === 'admin'">{{goal.created_by_role === 'admin' ? 'Admin' : 'Gestor'}}</span></td>
                 <td>{{periodLabel(goal.period_type)}} - {{goal.target_count}} registros</td>
-                <td><span class="date-range">{{goal.starts_on}}<small>a</small>{{goal.ends_on}}</span></td>
+                <td><span class="date-range">{{dateText(goal.starts_on)}}<small>a</small>{{dateText(goal.ends_on)}}</span></td>
                 <td><div class="progress"><span [style.width.%]="barWidth(goal.progress?.percentage || 0)"></span></div><small>{{goal.progress?.count || 0}} / {{goal.target_count}} - {{goal.progress?.percentage || 0}}%</small></td>
                 <td><div class="row-actions"><button class="secondary action-button" (click)="editGoal(manager.id, goal)">Editar</button><button class="danger action-button" (click)="deleteGoal(goal)">Eliminar</button></div></td>
               </tr>
@@ -368,6 +371,7 @@ export class AdminManagerGoalsComponent implements OnInit {
   }
   periodLabel(period: GoalPeriod) { return periodLabels[period]; }
   barWidth(value: number) { return Math.min(value, 100); }
+  dateText(value: string | null | undefined) { return formatDateText(value); }
 }
 
 function cleanParams(values: Record<string, unknown>) {
@@ -394,4 +398,24 @@ function localDateInputValue(date = new Date()) {
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+}
+
+function formatDateText(value: string | null | undefined) {
+  if (!value) return '-';
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat('es-MX', { day: 'numeric', month: 'long', year: 'numeric' }).format(date);
+}
+
+function formatDateTimeText(value: unknown) {
+  if (!value) return 'Sin registros';
+  const date = new Date(String(value));
+  if (Number.isNaN(date.getTime())) return String(value);
+  return new Intl.DateTimeFormat('es-MX', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit'
+  }).format(date);
 }

@@ -18,7 +18,7 @@ const teamLabels: Record<string, string> = {
   imports: [ReactiveFormsModule, RouterLink],
   template: `
     <div class="page-title">
-      <h1>{{auth.profile()?.role === 'admin' ? 'Gestion de equipo' : 'Agregar capturador'}}</h1>
+      <h1>{{auth.profile()?.role === 'admin' ? 'Gestión de equipo' : 'Agregar capturador'}}</h1>
       @if (auth.profile()?.role === 'gestor') {<a routerLink="/gestor/capturadores">Volver a capturadores</a>}
     </div>
 
