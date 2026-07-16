@@ -282,6 +282,36 @@ select:disabled {
 }
 .step-title h2 { margin: 0; }
 .step-title p { margin: .25rem 0 0; color: var(--muted); }
+.step-heading {
+  display: grid;
+  gap: .65rem;
+  min-width: 0;
+}
+.leadership-chip {
+  display: inline-grid;
+  gap: .15rem;
+  width: fit-content;
+  max-width: 100%;
+  margin: 0;
+  padding: .55rem .7rem;
+  border: 1px solid #bfd4ec;
+  border-radius: .55rem;
+  background: var(--blue-softest);
+  color: var(--ink);
+}
+.leadership-chip small {
+  color: var(--blue-text);
+  font-size: .72rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+.leadership-chip strong {
+  overflow-wrap: anywhere;
+  color: var(--ink);
+  font-size: .95rem;
+  line-height: 1.25;
+}
 .form-tabs {
   display: flex;
   gap: .5rem;
@@ -922,6 +952,10 @@ td {
   .page-title h2,
   .step-title h2 {
     overflow-wrap: anywhere;
+  }
+  .step-heading,
+  .leadership-chip {
+    width: 100%;
   }
   .form-tabs {
     align-items: stretch;

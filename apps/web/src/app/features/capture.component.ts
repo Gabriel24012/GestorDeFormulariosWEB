@@ -15,9 +15,12 @@ import { apiErrorMessage } from '../core/api-errors';
       <section class="card">
         <div class="step-title">
           <span>1</span>
-          <div>
+          <div class="step-heading">
             <h2>{{editingRecord() ? 'Editar registro' : 'Registro ciudadano'}}</h2>
-            <p>Liderazgo: {{context()?.leadership_name || 'Cargando...'}}</p>
+            <p class="leadership-chip">
+              <small>Liderazgo</small>
+              <strong>{{context()?.leadership_name || 'Cargando...'}}</strong>
+            </p>
           </div>
         </div>
 
