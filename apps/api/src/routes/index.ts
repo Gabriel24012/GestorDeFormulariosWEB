@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { authenticate, authorize } from '../middleware/auth.js';
 import { serviceDb } from '../lib/supabase.js';
 import { env } from '../config/env.js';
-import { accountPatchSchema, accountSchema, completeInviteSchema, idParam, inviteLinkSchema, inviteTokenParam, recordPatchSchema, recordSchema, toIsoDate } from '../lib/validation.js';
+import { accountPatchSchema, accountSchema, completeInviteSchema, goalPatchSchema, goalSchema, idParam, inviteLinkSchema, inviteTokenParam, managerRecordFiltersSchema, recordPatchSchema, recordSchema, toIsoDate } from '../lib/validation.js';
 
 const router = Router();
 
@@ -212,22 +212,50 @@ router.get('/records', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+router.get('/record-suggestions', authorize('capturador', 'gestor', 'admin'), async (req, res, next) => {
+  try {
+    const params = z.object({
+      field: z.enum(['address', 'neighborhood', 'district', 'postal_code']),
+      q: z.string().trim().min(2).max(80)
+    }).parse(req.query);
+    const { data, error } = await req.auth!.db
+      .from('records')
+      .select(params.field)
+      .eq('status', 'active')
+      .ilike(params.field, `%${params.q.replace(/[,%]/g, ' ')}%`)
+      .limit(25);
+    if (error) throw error;
+    const suggestions = [...new Set((data ?? [])
+      .map((row) => String((row as Record<string, unknown>)[params.field] ?? '').trim())
+      .filter(Boolean))]
+      .slice(0, 12);
+    res.json({ data: suggestions });
+  } catch (e) { next(e); }
+});
+
 router.post('/records', authorize('capturador'), async (req, res, next) => {
   try {
     const body = recordSchema.parse(req.body);
     const payload = { ...body, birth_date: toIsoDate(body.birth_date) };
+    await assertNoDuplicateRecordFields(payload);
     const { data, error } = await req.auth!.db.from('records').insert(payload).select().single();
     if (error) throw error;
     res.status(201).json({ data });
   } catch (e) { next(e); }
 });
 
-router.patch('/records/:id', authorize('capturador', 'admin'), async (req, res, next) => {
+router.patch('/records/:id', authorize('capturador', 'gestor', 'admin'), async (req, res, next) => {
   try {
     const { id } = idParam.parse(req.params);
     const raw = recordPatchSchema.parse(req.body);
     const body = raw.birth_date ? { ...raw, birth_date: toIsoDate(raw.birth_date) } : raw;
-    const { data, error } = await req.auth!.db.from('records').update(body).eq('id', id).select().single();
+    const actor = req.auth!.profile;
+    const { data: current, error: currentError } = await serviceDb.from('records').select('id,capturer_id,manager_id').eq('id', id).single();
+    if (currentError || !current) return res.status(404).json({ error: 'Registro no encontrado.' });
+    if (actor.role === 'capturador' && current.capturer_id !== actor.id) return res.status(403).json({ error: 'No puedes editar este registro.' });
+    if (actor.role === 'gestor' && current.manager_id !== actor.id) return res.status(403).json({ error: 'No puedes editar este registro.' });
+    await assertNoDuplicateRecordFields(body, id);
+    const { data, error } = await serviceDb.from('records').update(body).eq('id', id).select().single();
     if (error) throw error;
     res.json({ data });
   } catch (e) { next(e); }
@@ -263,28 +291,191 @@ router.get('/dashboard/admin', authorize('admin'), async (_req, res, next) => {
 
 router.get('/dashboard/gestor', authorize('gestor'), async (req, res, next) => {
   try {
-    const id = req.auth!.profile.id;
-    const [{ count: records }, { count: capturers }] = await Promise.all([
-      serviceDb.from('records').select('*', { count: 'exact', head: true }).eq('manager_id', id).eq('status', 'active'),
-      serviceDb.from('profiles').select('*', { count: 'exact', head: true }).eq('parent_user_id', id).eq('role', 'capturador')
+    res.json({ data: await managerOverview(req.auth!.profile.id) });
+  } catch (e) { next(e); }
+});
+
+router.get('/manager/capturers', authorize('gestor'), async (req, res, next) => {
+  try {
+    res.json({ data: await managerCapturerRows(req.auth!.profile.id) });
+  } catch (e) { next(e); }
+});
+
+router.get('/manager/capturers/:id', authorize('gestor'), async (req, res, next) => {
+  try {
+    const { id } = idParam.parse(req.params);
+    const managerId = req.auth!.profile.id;
+    const { data: capturer, error } = await serviceDb
+      .from('profiles')
+      .select('id,email,full_name,is_active,onboarding_completed_at,created_at')
+      .eq('id', id)
+      .eq('role', 'capturador')
+      .eq('parent_user_id', managerId)
+      .maybeSingle();
+    if (error) throw error;
+
+    if (!capturer) {
+      const { data: invite, error: inviteError } = await serviceDb
+        .from('capturer_invites')
+        .select('id,placeholder_name,status,created_at,used_at')
+        .eq('id', id)
+        .eq('manager_id', managerId)
+        .maybeSingle();
+      if (inviteError) throw inviteError;
+      if (!invite) return res.status(404).json({ error: 'Capturador no encontrado.' });
+      res.json({ data: { kind: 'invite', invite, total_records: 0, recent_records: [], top_zones: [], current_goal: null, can_resend_invite: invite.status === 'pending' } });
+      return;
+    }
+
+    const [{ count: total }, { data: recent, error: recentError }, { data: records, error: recordsError }, activeGoals, teamGoals] = await Promise.all([
+      serviceDb.from('records').select('*', { count: 'exact', head: true }).eq('manager_id', managerId).eq('capturer_id', id).eq('status', 'active'),
+      serviceDb.from('records').select('id,first_name,paternal_surname,maternal_surname,phone,electoral_key,neighborhood,district,created_at,status').eq('manager_id', managerId).eq('capturer_id', id).order('created_at', { ascending: false }).limit(10),
+      serviceDb.from('records').select('id,neighborhood,district,created_at').eq('manager_id', managerId).eq('capturer_id', id).eq('status', 'active'),
+      currentGoals(managerId, id),
+      currentTeamGoals(managerId)
     ]);
-    res.json({ data: { total_records: records ?? 0, total_capturadores: capturers ?? 0 } });
+    if (recentError) throw recentError;
+    if (recordsError) throw recordsError;
+    const goals = activeGoals.map((goal) => ({ ...goal, progress: goalProgress(goal, localDateString(), records ?? []) }));
+    const teamGoal = teamGoals[0] ?? null;
+    res.json({
+      data: {
+        kind: 'profile',
+        capturer,
+        total_records: total ?? 0,
+        recent_records: recent ?? [],
+        top_zones: topZones(records ?? []),
+        current_goal: goals[0] ?? null,
+        team_goal: teamGoal ? { ...teamGoal, progress: goalProgress(teamGoal, localDateString(), records ?? []) } : null,
+        goals,
+        can_resend_invite: !capturer.onboarding_completed_at
+      }
+    });
+  } catch (e) { next(e); }
+});
+
+router.get('/manager/goals', authorize('gestor'), async (req, res, next) => {
+  try {
+    const managerId = req.auth!.profile.id;
+    const [{ data: goals, error }, { data: records, error: recordsError }] = await Promise.all([
+      serviceDb
+      .from('capturer_goals')
+      .select('*,capturer:profiles!capturer_goals_capturer_id_fkey(id,full_name,email,is_active)')
+      .eq('manager_id', managerId)
+      .order('created_at', { ascending: false }),
+      serviceDb.from('records').select('id,capturer_id,created_at').eq('manager_id', managerId).eq('status', 'active')
+    ]);
+    if (error) throw error;
+    if (recordsError) throw recordsError;
+    const today = localDateString();
+    const rows = (goals ?? []).map((goal) => {
+      const normalizedGoal = normalizeGoalPeriod(goal);
+      return { ...normalizedGoal, progress: goalProgress(normalizedGoal, today, goalRecords(normalizedGoal, records ?? [])) };
+    });
+    res.json({ data: { active: rows.filter((goal) => goal.status === 'active' && !goal.archived_at), history: rows.filter((goal) => goal.status !== 'active' || goal.archived_at) } });
+  } catch (e) { next(e); }
+});
+
+router.post('/manager/goals', authorize('gestor'), async (req, res, next) => {
+  try {
+    const managerId = req.auth!.profile.id;
+    const body = goalSchema.parse(req.body);
+    if (body.capturer_id) await assertManagerOwnsCapturer(managerId, body.capturer_id);
+    const period = goalPeriod(body.period_type, body.starts_on, body.ends_on);
+    let archiveQuery = serviceDb
+      .from('capturer_goals')
+      .update({ status: 'archived', archived_at: new Date().toISOString() })
+      .eq('manager_id', managerId)
+      .eq('period_type', body.period_type)
+      .eq('status', 'active')
+      .is('archived_at', null);
+    archiveQuery = body.capturer_id ? archiveQuery.eq('capturer_id', body.capturer_id) : archiveQuery.is('capturer_id', null);
+    const { error: archiveError } = await archiveQuery;
+    if (archiveError) throw archiveError;
+    const { data, error } = await serviceDb
+      .from('capturer_goals')
+      .insert({ ...body, manager_id: managerId, starts_on: period.starts_on, ends_on: period.ends_on })
+      .select('*')
+      .single();
+    if (error) throw error;
+    await audit(managerId, 'capturer_goals', data.id, 'create_goal');
+    res.status(201).json({ data });
+  } catch (e) { next(e); }
+});
+
+router.patch('/manager/goals/:id', authorize('gestor'), async (req, res, next) => {
+  try {
+    const { id } = idParam.parse(req.params);
+    const managerId = req.auth!.profile.id;
+    const body = goalPatchSchema.parse(req.body);
+    const { data: current, error: currentError } = await serviceDb.from('capturer_goals').select('*').eq('id', id).eq('manager_id', managerId).single();
+    if (currentError) throw currentError;
+    const nextGoal = {
+      capturer_id: 'capturer_id' in body ? body.capturer_id : current.capturer_id,
+      period_type: body.period_type ?? current.period_type,
+      target_count: body.target_count ?? current.target_count,
+      starts_on: body.starts_on ?? current.starts_on,
+      ends_on: 'ends_on' in body ? body.ends_on : current.ends_on
+    };
+    if (nextGoal.capturer_id) await assertManagerOwnsCapturer(managerId, nextGoal.capturer_id);
+    const period = goalPeriod(nextGoal.period_type, nextGoal.starts_on, nextGoal.ends_on ?? undefined);
+    let archiveQuery = serviceDb
+      .from('capturer_goals')
+      .update({ status: 'archived', archived_at: new Date().toISOString() })
+      .eq('manager_id', managerId)
+      .eq('period_type', nextGoal.period_type)
+      .eq('status', 'active')
+      .is('archived_at', null);
+    archiveQuery = nextGoal.capturer_id ? archiveQuery.eq('capturer_id', nextGoal.capturer_id) : archiveQuery.is('capturer_id', null);
+    const { error: archiveError } = await archiveQuery;
+    if (archiveError) throw archiveError;
+    const { data, error } = await serviceDb
+      .from('capturer_goals')
+      .insert({ ...nextGoal, manager_id: managerId, starts_on: period.starts_on, ends_on: period.ends_on })
+      .select('*')
+      .single();
+    if (error) throw error;
+    await audit(managerId, 'capturer_goals', data.id, 'update_goal');
+    res.json({ data });
+  } catch (e) { next(e); }
+});
+
+router.delete('/manager/goals/:id', authorize('gestor'), async (req, res, next) => {
+  try {
+    const { id } = idParam.parse(req.params);
+    const { error } = await serviceDb.from('capturer_goals').delete().eq('id', id).eq('manager_id', req.auth!.profile.id);
+    if (error) throw error;
+    await audit(req.auth!.profile.id, 'capturer_goals', id, 'delete_goal');
+    res.status(204).end();
+  } catch (e) { next(e); }
+});
+
+router.get('/manager/records', authorize('gestor'), async (req, res, next) => {
+  try {
+    const page = z.coerce.number().int().min(1).default(1).parse(req.query.page);
+    const limit = z.coerce.number().int().min(1).max(100).default(25).parse(req.query.limit);
+    const filters = managerRecordFiltersSchema.parse(req.query);
+    let query = managerRecordsQuery(req.auth!.profile.id);
+    query = applyManagerRecordFilters(query, filters);
+    const { data, error, count } = await query.order('created_at', { ascending: false }).range((page - 1) * limit, page * limit - 1);
+    if (error) throw error;
+    res.json({ data, meta: { page, limit, total: count ?? 0 } });
   } catch (e) { next(e); }
 });
 
 router.get('/exports/records', authorize('admin', 'gestor', 'capturador'), async (req, res, next) => {
   try {
     const format = z.enum(['csv', 'xlsx']).default('csv').parse(req.query.format);
-    const filters = z.object({ q: z.string().trim().min(1).optional() }).parse(req.query);
+    const filters = managerRecordFiltersSchema.parse(req.query);
     const db = req.auth!.profile.role === 'capturador' ? req.auth!.db : serviceDb;
-    let query = db.from('records').select('id,leadership_name,section_code,first_name,paternal_surname,maternal_surname,address,exterior_number,neighborhood,district,postal_code,birth_date,phone,electoral_key,observations,status,created_at,manager_id');
+    let query = db.from('records').select('id,leadership_name,section_code,first_name,paternal_surname,maternal_surname,address,exterior_number,neighborhood,district,postal_code,birth_date,phone,electoral_key,observations,status,created_at,manager_id,capturer_id,capturer:profiles!records_capturer_id_fkey(full_name,email)');
     if (req.auth!.profile.role === 'gestor') query = query.eq('manager_id', req.auth!.profile.id);
     if (req.auth!.profile.role === 'capturador') query = query.eq('capturer_id', req.auth!.profile.id);
-    if (filters.q) query = applyRecordSearch(query, filters.q);
+    query = applyManagerRecordFilters(query, filters);
     const { data, error } = await query.order('created_at', { ascending: false });
     if (error) throw error;
     await audit(req.auth!.profile.id, 'records', null, `export_${format}`);
-    const rows = data ?? [];
+    const rows = (data ?? []).map(exportRecordRow);
     if (format === 'csv') { res.type('text/csv').attachment('registros.csv').send(toCsv(rows)); return; }
     const workbook = new ExcelJS.Workbook();
     const sheet = workbook.addWorksheet('Registros');
@@ -312,6 +503,293 @@ function tokenHash(token: string) {
 
 function inviteLink(token: string) {
   return `${env.APP_URL}/auth/invite/${token}`;
+}
+
+type ManagerRecordFilters = z.infer<typeof managerRecordFiltersSchema>;
+type GoalPeriodType = 'daily' | 'weekly' | 'monthly';
+
+function managerRecordsQuery(managerId: string) {
+  return serviceDb
+    .from('records')
+    .select('id,leadership_name,section_code,first_name,paternal_surname,maternal_surname,address,exterior_number,neighborhood,district,postal_code,birth_date,phone,electoral_key,observations,status,created_at,manager_id,capturer_id,capturer:profiles!records_capturer_id_fkey(full_name,email)', { count: 'exact' })
+    .eq('manager_id', managerId);
+}
+
+function applyManagerRecordFilters<T extends {
+  eq: (field: string, value: string) => T;
+  gte: (field: string, value: string) => T;
+  lte: (field: string, value: string) => T;
+  or: (filters: string) => T;
+}>(query: T, filters: ManagerRecordFilters) {
+  let next = query;
+  if (filters.q) next = applyRecordSearch(next, filters.q);
+  if (filters.capturer_id) next = next.eq('capturer_id', filters.capturer_id);
+  if (filters.date_from) next = next.gte('created_at', zonedDateTimeToUtc(filters.date_from, 0, 0, 0).toISOString());
+  if (filters.date_to) next = next.lte('created_at', zonedDateTimeToUtc(addDays(filters.date_to, 1), 0, 0, 0).toISOString());
+  if (filters.district) next = next.eq('district', filters.district);
+  if (filters.neighborhood) next = next.eq('neighborhood', filters.neighborhood);
+  if (filters.postal_code) next = next.eq('postal_code', filters.postal_code);
+  if (filters.section_code) next = next.eq('section_code', filters.section_code.toUpperCase());
+  if (filters.status) next = next.eq('status', filters.status);
+  if (filters.leadership_name) next = next.eq('leadership_name', filters.leadership_name.toUpperCase());
+  return next;
+}
+
+async function assertNoDuplicateRecordFields(values: { phone?: string | null; electoral_key?: string | null }, currentId?: string) {
+  const filters: string[] = [];
+  if (values.phone) filters.push(`phone.eq.${values.phone}`);
+  if (values.electoral_key) filters.push(`electoral_key.eq.${values.electoral_key}`);
+  if (!filters.length) return;
+  let query = serviceDb.from('records').select('id,phone,electoral_key').or(filters.join(',')).limit(1);
+  if (currentId) query = query.neq('id', currentId);
+  const { data, error } = await query;
+  if (error) throw error;
+  const duplicate = data?.[0];
+  if (!duplicate) return;
+  if (values.phone && duplicate.phone === values.phone) {
+    const err = new Error('El telefono ya existe en otro registro.');
+    Object.assign(err, { status: 409, field: 'phone' });
+    throw err;
+  }
+  if (values.electoral_key && duplicate.electoral_key === values.electoral_key) {
+    const err = new Error('La clave electoral ya existe en otro registro.');
+    Object.assign(err, { status: 409, field: 'electoral_key' });
+    throw err;
+  }
+}
+
+async function managerOverview(managerId: string) {
+  const [{ data: capturers, error: capturersError }, { data: records, error: recordsError }, goals] = await Promise.all([
+    serviceDb.from('profiles').select('id,full_name,is_active,onboarding_completed_at').eq('parent_user_id', managerId).eq('role', 'capturador'),
+    serviceDb.from('records').select('id,capturer_id,created_at,status,neighborhood,district').eq('manager_id', managerId).eq('status', 'active'),
+    currentGoals(managerId)
+  ]);
+  if (capturersError) throw capturersError;
+  if (recordsError) throw recordsError;
+  const rows = records ?? [];
+  const ranges = recordDateRanges();
+  const teamGoal = goals.find((goal) => !goal.capturer_id) ?? null;
+  const ranking = (capturers ?? []).map((capturer) => {
+    const capturerRecords = rows.filter((record) => record.capturer_id === capturer.id);
+    const last = capturerRecords.map((record) => record.created_at).sort().at(-1) ?? null;
+    return {
+      id: capturer.id,
+      full_name: capturer.full_name,
+      total_records: capturerRecords.length,
+      last_record_at: last,
+      current_goal: goals.find((goal) => goal.capturer_id === capturer.id) ?? null
+    };
+  }).sort((a, b) => b.total_records - a.total_records);
+  return {
+    total_records: rows.length,
+    total_capturadores: (capturers ?? []).filter((item) => item.is_active).length,
+    records_today: rows.filter((record) => inRange(record.created_at, ranges.today)).length,
+    records_week: rows.filter((record) => inRange(record.created_at, ranges.week)).length,
+    records_month: rows.filter((record) => inRange(record.created_at, ranges.month)).length,
+    team_goal: teamGoal ? { ...teamGoal, progress: goalProgress(teamGoal, localDateString(), goalRecords(teamGoal, rows)) } : null,
+    top_zones: topZones(rows),
+    ranking,
+    inactive_alerts: ranking.filter((item) => !item.last_record_at || new Date(item.last_record_at) < ranges.inactiveSince)
+  };
+}
+
+async function managerCapturerRows(managerId: string) {
+  const [{ data: capturers, error: capturersError }, { data: invites, error: invitesError }, { data: records, error: recordsError }, goals] = await Promise.all([
+    serviceDb.from('profiles').select('id,email,full_name,is_active,onboarding_completed_at,created_at').eq('parent_user_id', managerId).eq('role', 'capturador').order('full_name'),
+    serviceDb.from('capturer_invites').select('id,placeholder_name,status,created_at,used_at').eq('manager_id', managerId).eq('status', 'pending').order('created_at', { ascending: false }),
+    serviceDb.from('records').select('id,capturer_id,created_at,status').eq('manager_id', managerId).eq('status', 'active'),
+    currentGoals(managerId)
+  ]);
+  if (capturersError) throw capturersError;
+  if (invitesError) throw invitesError;
+  if (recordsError) throw recordsError;
+  const ranges = recordDateRanges();
+  const rows = records ?? [];
+  return [
+    ...(capturers ?? []).map((capturer) => {
+      const capturerRecords = rows.filter((record) => record.capturer_id === capturer.id);
+      const goal = goals.find((item) => item.capturer_id === capturer.id) ?? null;
+      return {
+        kind: 'profile',
+        ...capturer,
+        status_label: capturer.is_active ? 'Activo' : 'Inactivo',
+        total_records: capturerRecords.length,
+        records_today: capturerRecords.filter((record) => inRange(record.created_at, ranges.today)).length,
+        records_week: capturerRecords.filter((record) => inRange(record.created_at, ranges.week)).length,
+        current_goal: goal,
+        progress: goal ? goalProgress(goal, localDateString(), capturerRecords) : null
+      };
+    }),
+    ...(invites ?? []).map((invite) => ({
+      kind: 'invite',
+      id: invite.id,
+      placeholder_name: invite.placeholder_name,
+      status_label: 'Pendiente',
+      created_at: invite.created_at,
+      total_records: 0,
+      records_today: 0,
+      records_week: 0,
+      current_goal: null,
+      progress: null
+    }))
+  ];
+}
+
+async function currentGoals(managerId: string, capturerId?: string) {
+  let query = serviceDb.from('capturer_goals').select('*').eq('manager_id', managerId).eq('status', 'active').is('archived_at', null).order('created_at', { ascending: false });
+  if (capturerId) query = query.eq('capturer_id', capturerId);
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data ?? []).map(normalizeGoalPeriod);
+}
+
+async function currentTeamGoals(managerId: string) {
+  const { data, error } = await serviceDb
+    .from('capturer_goals')
+    .select('*')
+    .eq('manager_id', managerId)
+    .eq('status', 'active')
+    .is('archived_at', null)
+    .is('capturer_id', null)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map(normalizeGoalPeriod);
+}
+
+async function assertManagerOwnsCapturer(managerId: string, capturerId: string) {
+  const { data, error } = await serviceDb.from('profiles').select('id').eq('id', capturerId).eq('role', 'capturador').eq('parent_user_id', managerId).single();
+  if (error || !data) {
+    const err = new Error('Capturador no encontrado en tu equipo.');
+    Object.assign(err, { status: 404 });
+    throw err;
+  }
+}
+
+function goalProgress(goal: any, today: string, records: { created_at: string }[] = []) {
+  const count = records.filter((record) => {
+    const recordDate = localDateString(new Date(record.created_at));
+    return recordDate >= goal.starts_on && recordDate <= goal.ends_on;
+  }).length;
+  const percentage = goal.target_count > 0 ? Math.round((count / goal.target_count) * 100) : 0;
+  const status = percentage >= 100 ? 'superado' : today > goal.ends_on ? 'bajo' : percentage >= 70 ? 'en progreso' : 'bajo';
+  return { count, target: goal.target_count, percentage, status };
+}
+
+function goalRecords(goal: any, records: { capturer_id?: string | null; created_at: string }[]) {
+  return goal.capturer_id ? records.filter((record) => record.capturer_id === goal.capturer_id) : records;
+}
+
+function normalizeGoalPeriod(goal: any) {
+  return goal;
+}
+
+function goalPeriod(periodType: GoalPeriodType, startsOn: string, endsOn?: string) {
+  if (endsOn) return { starts_on: startsOn, ends_on: endsOn };
+  if (periodType === 'weekly') {
+    const day = localDayOfWeek(startsOn);
+    const starts_on = addDays(startsOn, 1 - day);
+    return { starts_on, ends_on: addDays(starts_on, 6) };
+  }
+  if (periodType === 'monthly') {
+    const starts_on = `${startsOn.slice(0, 8)}01`;
+    return { starts_on, ends_on: addDays(addDays(starts_on, daysInMonth(starts_on)), -1) };
+  }
+  return { starts_on: startsOn, ends_on: startsOn };
+}
+
+function daysInMonth(value: string) {
+  const [year, month] = value.split('-').map(Number);
+  return new Date(Date.UTC(year, month, 0)).getUTCDate();
+}
+
+function recordDateRanges() {
+  const today = localDateString();
+  const parts = today.split('-').map(Number);
+  const localNoon = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2], 12));
+  const day = localNoon.getUTCDay() || 7;
+  const weekStart = addDays(today, 1 - day);
+  const monthStart = `${today.slice(0, 8)}01`;
+  return {
+    today: { start: zonedDateTimeToUtc(today, 0, 0, 0), end: zonedDateTimeToUtc(addDays(today, 1), 0, 0, 0) },
+    week: { start: zonedDateTimeToUtc(weekStart, 0, 0, 0), end: zonedDateTimeToUtc(addDays(today, 1), 0, 0, 0) },
+    month: { start: zonedDateTimeToUtc(monthStart, 0, 0, 0), end: zonedDateTimeToUtc(addDays(today, 1), 0, 0, 0) },
+    inactiveSince: zonedDateTimeToUtc(addDays(today, -7), 0, 0, 0)
+  };
+}
+
+function inRange(value: string, range: { start: Date; end: Date }) {
+  const date = new Date(value);
+  return date >= range.start && date < range.end;
+}
+
+function localDateString(date = new Date()) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City', year: 'numeric', month: '2-digit', day: '2-digit' }).format(date);
+}
+
+function zonedDateTimeToUtc(date: string, hour: number, minute: number, second: number) {
+  const [year, month, day] = date.split('-').map(Number);
+  let utc = new Date(Date.UTC(year, month - 1, day, hour, minute, second));
+  for (let i = 0; i < 2; i += 1) {
+    const parts = zonedParts(utc);
+    const actual = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second);
+    const desired = Date.UTC(year, month - 1, day, hour, minute, second);
+    utc = new Date(utc.getTime() + desired - actual);
+  }
+  return utc;
+}
+
+function zonedParts(date: Date) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Mexico_City',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23'
+  }).formatToParts(date);
+  const value = (type: string) => Number(parts.find((part) => part.type === type)?.value);
+  return { year: value('year'), month: value('month'), day: value('day'), hour: value('hour'), minute: value('minute'), second: value('second') };
+}
+
+function addDays(value: string, days: number) {
+  const [year, month, day] = value.split('-').map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day + days));
+  return date.toISOString().slice(0, 10);
+}
+
+function localDayOfWeek(value: string) {
+  const [year, month, day] = value.split('-').map(Number);
+  return new Date(Date.UTC(year, month - 1, day, 12)).getUTCDay() || 7;
+}
+
+function topZones(records: { neighborhood?: string | null; district?: string | null }[]) {
+  const map = new Map<string, { zone: string; total: number }>();
+  for (const record of records) {
+    const zone = [record.neighborhood, record.district].filter(Boolean).join(' / ') || 'Sin zona';
+    map.set(zone, { zone, total: (map.get(zone)?.total ?? 0) + 1 });
+  }
+  return [...map.values()].sort((a, b) => b.total - a.total).slice(0, 5);
+}
+
+function exportRecordRow(row: any) {
+  return {
+    id: row.id,
+    capturador: row.capturer?.full_name ?? '',
+    liderazgo: row.leadership_name,
+    nombre: [row.first_name, row.paternal_surname, row.maternal_surname].filter(Boolean).join(' '),
+    domicilio: row.address,
+    numero_exterior: row.exterior_number,
+    fraccionamiento: row.neighborhood,
+    distrito: row.district,
+    codigo_postal: row.postal_code,
+    fecha_nacimiento: row.birth_date,
+    telefono: row.phone,
+    clave_electoral: row.electoral_key,
+    observaciones: row.observations,
+    creado: row.created_at
+  };
 }
 
 function applyRecordSearch<T extends { or: (filters: string) => T }>(query: T, value: string) {

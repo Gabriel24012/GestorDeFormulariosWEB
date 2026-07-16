@@ -8,8 +8,15 @@ export function notFound(_req: Request, res: Response) {
 export function errorHandler(error: unknown, _req: Request, res: Response, _next: NextFunction) {
   if (error instanceof ZodError) return res.status(422).json({ error: 'Revisa los campos marcados.', details: error.flatten() });
   if (isKnownDatabaseError(error)) return res.status(error.status).json({ error: error.message, field: error.field });
+  if (isHttpError(error)) return res.status(error.status).json({ error: error.message, field: error.field });
   console.error(error);
   return res.status(500).json({ error: 'Error interno del servidor.' });
+}
+
+function isHttpError(error: unknown): error is { status: number; message: string; field?: string } {
+  if (!error || typeof error !== 'object') return false;
+  const raw = error as { status?: number; message?: string };
+  return typeof raw.status === 'number' && raw.status >= 400 && raw.status < 600 && typeof raw.message === 'string';
 }
 
 function isKnownDatabaseError(error: unknown): error is { status: number; message: string; field?: string } {

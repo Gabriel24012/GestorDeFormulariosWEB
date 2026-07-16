@@ -1,20 +1,24 @@
 import { Component, inject } from '@angular/core';
-import { RouterLink, RouterOutlet } from '@angular/router';
+import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { AuthService } from './core/auth.service';
 
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [RouterOutlet, RouterLink],
+  imports: [RouterOutlet, RouterLink, RouterLinkActive],
   template: `
 <header>
-  <a routerLink="/" class="brand">Gestion de Captura</a>
+  <a routerLink="/" class="brand">
+    <img src="/pan-logo.png" alt="PAN">
+    <span>Gestion de Captura</span>
+  </a>
   @if (auth.profile(); as p) {
+    <p class="welcome">Bienvenido de nuevo {{p.full_name}}</p>
     <nav>
-      @if (p.role === 'capturador') {<a routerLink="/captura">Captura</a>}
-      @if (p.role === 'admin') {<a routerLink="/admin">Panel</a>}
-      @if (p.role === 'gestor') {<a routerLink="/gestor">Panel</a>}
-      @if (p.role !== 'capturador') {<a routerLink="/equipo">Equipo</a><a routerLink="/exportar">Exportar</a>}
+      @if (p.role === 'capturador') {<a routerLink="/captura" routerLinkActive="active" [routerLinkActiveOptions]="{exact: true}">Captura</a>}
+      @if (p.role === 'admin') {<a routerLink="/admin" routerLinkActive="active" [routerLinkActiveOptions]="{exact: true}">Panel</a>}
+      @if (p.role === 'gestor') {<a routerLink="/gestor" routerLinkActive="active" [routerLinkActiveOptions]="{exact: true}">Panel</a><a routerLink="/gestor/capturadores" routerLinkActive="active">Capturadores</a><a routerLink="/gestor/registros" routerLinkActive="active">Registros</a><a routerLink="/gestor/metas" routerLinkActive="active">Metas</a>}
+      @if (p.role === 'admin') {<a routerLink="/equipo" routerLinkActive="active">Equipo</a><a routerLink="/exportar" routerLinkActive="active">Exportar</a>}
       <button (click)="logout()">Salir</button>
     </nav>
   }

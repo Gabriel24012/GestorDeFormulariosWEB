@@ -69,7 +69,7 @@ create table public.records (
   neighborhood text,
   district text,
   postal_code char(5),
-  birth_date date not null check (birth_date <= current_date),
+  birth_date date not null check (birth_date between (current_date - interval '120 years')::date and current_date),
   phone char(10) not null check (phone ~ '^[0-9]{10}$'),
   electoral_key varchar(18) not null unique check (electoral_key ~ '^[A-Z0-9]{18}$'),
   observations text,

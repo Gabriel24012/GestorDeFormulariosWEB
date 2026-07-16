@@ -1,6 +1,8 @@
-import { Component, OnInit, inject, signal } from '@angular/core';
-import { ReactiveFormsModule, FormControl, FormGroup, Validators } from '@angular/forms';
+import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { AbstractControl, ReactiveFormsModule, FormControl, FormGroup, ValidationErrors, Validators } from '@angular/forms';
+import { debounceTime, distinctUntilChanged, switchMap } from 'rxjs';
 import { ApiService } from '../core/api.service';
+import { CatalogService } from '../core/catalog.service';
 import type { CaptureContext, RecordItem } from '../core/models';
 import { apiErrorMessage } from '../core/api-errors';
 
@@ -33,12 +35,28 @@ import { apiErrorMessage } from '../core/api-errors';
             @for (field of fields; track field.key) {
               <label>
                 {{field.label}}
-                <input [type]="field.type" [formControlName]="field.key" [placeholder]="field.placeholder">
+                @if (field.key === 'district') {
+                  <select [formControlName]="field.key">
+                    <option value="">Selecciona</option>
+                    @for(option of districtSuggestions(); track option) { <option [value]="option">{{option}}</option> }
+                  </select>
+                } @else {
+                  <input [type]="field.type" [formControlName]="field.key" [placeholder]="field.placeholder" [attr.min]="field.min" [attr.max]="field.max" [attr.list]="catalogList(field.key)" (change)="applyCatalogMatch(field.key)">
+                }
                 @if (recordIssue(field.key)) {<small class="field-error">{{recordIssue(field.key)}}</small>}
               </label>
             }
             <label>Observaciones<textarea formControlName="observations"></textarea></label>
           </div>
+          <datalist id="address-options">
+            @for(option of addressSuggestions(); track option) { <option [value]="option"></option> }
+          </datalist>
+          <datalist id="neighborhood-options">
+            @for(option of neighborhoodSuggestions(); track option) { <option [value]="option"></option> }
+          </datalist>
+          <datalist id="postal-code-options">
+            @for(option of postalCodeSuggestions(); track option) { <option [value]="option"></option> }
+          </datalist>
           @if(message()){<p class="success">{{message()}}</p>}
           @if(error()){<p class="error">{{error()}}</p>}
           @if (recordForm.invalid) {<p class="form-hint">Revisa: {{recordMissingText()}}</p>}
@@ -68,6 +86,18 @@ import { apiErrorMessage } from '../core/api-errors';
           <input [value]="searchTerm()" (input)="search($any($event.target).value)" placeholder="Nombre, apellido, telefono, clave...">
         </label>
 
+        <div class="list-controls">
+          <label>
+            Mostrar
+            <select [value]="pageSize()" (change)="changePageSize($any($event.target).value)">
+              <option value="10">10</option>
+              <option value="25">25</option>
+              <option value="50">50</option>
+            </select>
+          </label>
+          <span>Pagina {{currentPage()}} de {{totalPages()}}</span>
+        </div>
+
         <div class="record-list">
           @for (record of records(); track record.id) {
             <button type="button" class="record-row" [class.active]="editingRecord()?.id === record.id" (click)="editRecord(record)">
@@ -79,12 +109,20 @@ import { apiErrorMessage } from '../core/api-errors';
             <p>No se encontraron registros.</p>
           }
         </div>
+
+        <div class="pagination">
+          <button type="button" class="secondary" (click)="previousPage()" [disabled]="currentPage() === 1">Anterior</button>
+          <button type="button" class="secondary" (click)="nextPage()" [disabled]="currentPage() >= totalPages()">Siguiente</button>
+        </div>
       </aside>
     </div>
   `
 })
 export class CaptureComponent implements OnInit {
   private api = inject(ApiService);
+  private catalog = inject(CatalogService);
+  readonly minBirthDate = this.isoDateYearsAgo(120);
+  readonly maxBirthDate = this.todayIsoDate();
 
   context = signal<CaptureContext | null>(null);
   message = signal('');
@@ -93,6 +131,13 @@ export class CaptureComponent implements OnInit {
   recordsTotal = signal(0);
   searchTerm = signal('');
   editingRecord = signal<RecordItem | null>(null);
+  currentPage = signal(1);
+  pageSize = signal(10);
+  addressSuggestions = signal<string[]>([]);
+  neighborhoodSuggestions = signal<string[]>([]);
+  districtSuggestions = signal<string[]>(this.catalog.suggest('district', ''));
+  postalCodeSuggestions = signal<string[]>([]);
+  totalPages = computed(() => Math.max(1, Math.ceil(this.recordsTotal() / this.pageSize())));
 
   recordForm = new FormGroup({
     first_name: new FormControl('', { nonNullable: true, validators: Validators.required }),
@@ -103,7 +148,7 @@ export class CaptureComponent implements OnInit {
     neighborhood: new FormControl(''),
     district: new FormControl(''),
     postal_code: new FormControl('', { nonNullable: true, validators: Validators.pattern(/^\d{5}$/) }),
-    birth_date: new FormControl('', { nonNullable: true, validators: [Validators.required, Validators.pattern(/^\d{2}\/\d{2}\/\d{4}$/)] }),
+    birth_date: new FormControl('', { nonNullable: true, validators: [Validators.required, this.birthDateValidator.bind(this)] }),
     phone: new FormControl('', { nonNullable: true, validators: [Validators.required, Validators.pattern(/^\d{10}$/)] }),
     electoral_key: new FormControl('', { nonNullable: true, validators: [Validators.required, Validators.pattern(/^[A-Za-z0-9]{18}$/)] }),
     observations: new FormControl('')
@@ -118,7 +163,7 @@ export class CaptureComponent implements OnInit {
     {key: 'neighborhood', label: 'Fraccionamiento', type: 'text', placeholder: ''},
     {key: 'district', label: 'Distrito', type: 'text', placeholder: ''},
     {key: 'postal_code', label: 'C.P.', type: 'text', placeholder: '5 digitos'},
-    {key: 'birth_date', label: 'Fecha de nacimiento', type: 'text', placeholder: 'dd/MM/aaaa'},
+    {key: 'birth_date', label: 'Fecha de nacimiento', type: 'date', placeholder: '', min: this.minBirthDate, max: this.maxBirthDate},
     {key: 'phone', label: 'Telefono', type: 'tel', placeholder: '10 digitos'},
     {key: 'electoral_key', label: 'Clave electoral', type: 'text', placeholder: '18 caracteres'}
   ];
@@ -134,6 +179,7 @@ export class CaptureComponent implements OnInit {
   };
 
   ngOnInit() {
+    this.setupCatalogAutocomplete();
     this.api.get<{data: CaptureContext}>('/capture-context').subscribe((response) => this.context.set(response.data));
     this.loadRecords();
   }
@@ -165,6 +211,25 @@ export class CaptureComponent implements OnInit {
 
   search(value: string) {
     this.searchTerm.set(value);
+    this.currentPage.set(1);
+    this.loadRecords();
+  }
+
+  changePageSize(value: string) {
+    this.pageSize.set(Number(value));
+    this.currentPage.set(1);
+    this.loadRecords();
+  }
+
+  previousPage() {
+    if (this.currentPage() === 1) return;
+    this.currentPage.update((page) => page - 1);
+    this.loadRecords();
+  }
+
+  nextPage() {
+    if (this.currentPage() >= this.totalPages()) return;
+    this.currentPage.update((page) => page + 1);
     this.loadRecords();
   }
 
@@ -181,7 +246,7 @@ export class CaptureComponent implements OnInit {
       neighborhood: this.stringValue(record['neighborhood']),
       district: this.stringValue(record['district']),
       postal_code: this.stringValue(record['postal_code']),
-      birth_date: this.displayDate(this.stringValue(record['birth_date'])),
+      birth_date: this.inputDate(this.stringValue(record['birth_date'])),
       phone: this.stringValue(record['phone']),
       electoral_key: this.stringValue(record['electoral_key']),
       observations: this.stringValue(record['observations'])
@@ -234,6 +299,7 @@ export class CaptureComponent implements OnInit {
     if (!control?.invalid || (!control.touched && !control.dirty)) return '';
     const label = this.labels[key] ?? key;
     if (control.errors?.['required']) return `${label} es obligatorio.`;
+    if (control.errors?.['birthDateRange']) return `fecha debe estar entre ${this.displayDate(this.minBirthDate)} y ${this.displayDate(this.maxBirthDate)}.`;
     if (control.errors?.['pattern']) return this.patternMessage(key);
     return `Revisa ${label}.`;
   }
@@ -241,14 +307,43 @@ export class CaptureComponent implements OnInit {
   recordMissingText() {
     return Object.keys(this.labels).filter((key) => this.recordForm.get(key)?.invalid).map((key) => {
       const control = this.recordForm.get(key);
+      if (control?.errors?.['birthDateRange']) return 'fecha de nacimiento valida';
       return control?.errors?.['pattern'] ? this.patternMessage(key) : this.labels[key];
     }).join(', ');
   }
 
+  catalogList(key: string) {
+    if (key === 'address') return 'address-options';
+    if (key === 'neighborhood') return 'neighborhood-options';
+    if (key === 'postal_code') return 'postal-code-options';
+    return null;
+  }
+
+  applyCatalogMatch(key: string) {
+    if (key === 'neighborhood') {
+      const entry = this.catalog.exactByNeighborhood(this.recordForm.controls.neighborhood.value ?? '');
+      if (!entry) return;
+      this.patchCatalogFields(entry);
+    }
+    if (key === 'postal_code') {
+      const entry = this.catalog.exactByPostalCode(this.recordForm.controls.postal_code.value);
+      if (!entry) return;
+      const patch: Partial<Record<'neighborhood' | 'district', string>> = {};
+      if (!this.recordForm.controls.neighborhood.value) patch.neighborhood = entry.neighborhood;
+      if (entry.district && !this.recordForm.controls.district.value) patch.district = entry.district;
+      if (Object.keys(patch).length) this.recordForm.patchValue(patch);
+    }
+  }
+
   private loadRecords() {
-    const params: Record<string, string | number> = { limit: 100 };
+    const params: Record<string, string | number> = { page: this.currentPage(), limit: this.pageSize() };
     if (this.searchTerm().trim()) params['q'] = this.searchTerm().trim();
     this.api.get<{data: RecordItem[]; meta: {total: number}}>('/records', params).subscribe((response) => {
+      if (!response.data.length && response.meta.total > 0 && this.currentPage() > 1) {
+        this.currentPage.set(Math.max(1, Math.ceil(response.meta.total / this.pageSize())));
+        this.loadRecords();
+        return;
+      }
       this.records.set(response.data);
       this.recordsTotal.set(response.meta.total);
     });
@@ -271,6 +366,25 @@ export class CaptureComponent implements OnInit {
     });
   }
 
+  private setupCatalogAutocomplete() {
+    this.recordForm.controls.address.valueChanges
+      .pipe(debounceTime(250), distinctUntilChanged(), switchMap((value) => this.catalog.suggestAll('address', value ?? '')))
+      .subscribe((suggestions) => this.addressSuggestions.set(suggestions));
+    this.recordForm.controls.neighborhood.valueChanges
+      .pipe(debounceTime(250), distinctUntilChanged(), switchMap((value) => this.catalog.suggestAll('neighborhood', value ?? '')))
+      .subscribe((suggestions) => this.neighborhoodSuggestions.set(suggestions));
+    this.recordForm.controls.postal_code.valueChanges
+      .pipe(debounceTime(250), distinctUntilChanged(), switchMap((value) => this.catalog.suggestAll('postal_code', value ?? '')))
+      .subscribe((suggestions) => this.postalCodeSuggestions.set(suggestions));
+  }
+
+  private patchCatalogFields(entry: { district?: string; postalCode?: string }) {
+    const patch: Partial<Record<'district' | 'postal_code', string>> = {};
+    if (entry.district && !this.recordForm.controls.district.value) patch.district = entry.district;
+    if (entry.postalCode && !this.recordForm.controls.postal_code.value) patch.postal_code = entry.postalCode;
+    if (Object.keys(patch).length) this.recordForm.patchValue(patch);
+  }
+
   private recordPayload() {
     const value = this.recordForm.getRawValue();
     return { ...value, electoral_key: value.electoral_key.toUpperCase() };
@@ -280,12 +394,51 @@ export class CaptureComponent implements OnInit {
     return value ? String(value) : '';
   }
 
+  private inputDate(value: string) {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      return value;
+    }
+    if (/^\d{2}\/\d{2}\/\d{4}$/.test(value)) {
+      const [day, month, year] = value.split('/');
+      return `${year}-${month}-${day}`;
+    }
+    return value;
+  }
+
   private displayDate(value: string) {
     if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
       const [year, month, day] = value.split('-');
       return `${day}/${month}/${year}`;
     }
     return value;
+  }
+
+  private birthDateValidator(control: AbstractControl<string>): ValidationErrors | null {
+    const value = control.value;
+    if (!value) return null;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return { birthDateRange: true };
+    if (!this.isRealIsoDate(value)) return { birthDateRange: true };
+    return value >= this.minBirthDate && value <= this.maxBirthDate ? null : { birthDateRange: true };
+  }
+
+  private todayIsoDate() {
+    const today = new Date();
+    return this.formatIsoDate(today.getFullYear(), today.getMonth() + 1, today.getDate());
+  }
+
+  private isoDateYearsAgo(years: number) {
+    const today = new Date();
+    return this.formatIsoDate(today.getFullYear() - years, today.getMonth() + 1, today.getDate());
+  }
+
+  private isRealIsoDate(value: string) {
+    const [year, month, day] = value.split('-').map(Number);
+    const date = new Date(Date.UTC(year, month - 1, day));
+    return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+  }
+
+  private formatIsoDate(year: number, month: number, day: number) {
+    return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
   }
 
   private patternMessage(key: string) {

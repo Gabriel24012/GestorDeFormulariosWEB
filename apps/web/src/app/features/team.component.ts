@@ -1,5 +1,6 @@
 import { Component, OnInit, inject, signal } from '@angular/core';
 import { ReactiveFormsModule, FormControl, FormGroup, Validators } from '@angular/forms';
+import { RouterLink } from '@angular/router';
 import { ApiService } from '../core/api.service';
 import { AuthService } from '../core/auth.service';
 import type { CapturerMember } from '../core/models';
@@ -13,9 +14,12 @@ const teamLabels: Record<string, string> = {
 
 @Component({
   standalone: true,
-  imports: [ReactiveFormsModule],
+  imports: [ReactiveFormsModule, RouterLink],
   template: `
-    <h1>Gestion de equipo</h1>
+    <div class="page-title">
+      <h1>{{auth.profile()?.role === 'admin' ? 'Gestion de equipo' : 'Agregar capturador'}}</h1>
+      @if (auth.profile()?.role === 'gestor') {<a routerLink="/gestor/capturadores">Volver a capturadores</a>}
+    </div>
 
     @if (auth.profile()?.role === 'admin') {
       <section class="card">
