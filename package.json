@@ -1,0 +1,12 @@
+{
+  "name": "gestion-captura-web",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": ["apps/*"],
+  "scripts": {
+    "build": "npm run build -w @gestion-captura/api && npm run build -w @gestion-captura/web",
+    "test": "npm run test -w @gestion-captura/api",
+    "lint": "npm run lint -w @gestion-captura/api && npm run lint -w @gestion-captura/web"
+  },
+  "engines": { "node": ">=22.0.0" }
+}
