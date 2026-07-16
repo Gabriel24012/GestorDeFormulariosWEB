@@ -20,6 +20,12 @@
 
 * { box-sizing: border-box; }
 body { margin: 0; }
+img,
+svg,
+video,
+canvas {
+  max-width: 100%;
+}
 header {
   min-height: 64px;
   display: flex;
@@ -30,12 +36,29 @@ header {
   border-bottom: 1px solid #0d3474;
   color: #ffffff;
 }
+.header-main,
+.header-panel {
+  display: flex;
+  align-items: center;
+}
+.header-main {
+  min-width: 0;
+}
+.header-panel {
+  flex: 1;
+  justify-content: flex-end;
+  min-width: 0;
+}
 .brand {
   display: inline-flex;
   align-items: center;
   gap: .6rem;
   font-weight: 700;
   font-size: 1.05rem;
+  min-width: 0;
+}
+.brand span {
+  overflow-wrap: anywhere;
 }
 .brand img {
   width: 2.25rem;
@@ -63,6 +86,34 @@ nav a.active {
   border-color: #b9d0eb;
   color: var(--blue-strong);
   box-shadow: 0 6px 16px #051f501f;
+}
+.menu-toggle {
+  display: none;
+  width: 2.7rem;
+  height: 2.7rem;
+  padding: 0;
+  place-items: center;
+  gap: .24rem;
+  background: #ffffff;
+  border: 1px solid #b9d0eb;
+  color: var(--blue-strong);
+}
+.menu-toggle span {
+  display: block;
+  width: 1.2rem;
+  height: .13rem;
+  border-radius: 999px;
+  background: currentColor;
+  transition: transform .22s ease, opacity .18s ease;
+}
+.menu-toggle.open span:nth-child(1) {
+  transform: translateY(.37rem) rotate(45deg);
+}
+.menu-toggle.open span:nth-child(2) {
+  opacity: 0;
+}
+.menu-toggle.open span:nth-child(3) {
+  transform: translateY(-.37rem) rotate(-45deg);
 }
 button {
   border: 0;
@@ -121,6 +172,7 @@ main {
   padding: 1.25rem;
   margin: 1rem 0;
   box-shadow: 0 8px 24px #33415518;
+  min-width: 0;
 }
 .login { max-width: 420px; margin: 4rem auto; }
 form { display: grid; gap: 1rem; }
@@ -128,6 +180,8 @@ label { display: grid; gap: .35rem; font-weight: 600; }
 input,
 textarea,
 select {
+  width: 100%;
+  min-width: 0;
   border: 1px solid var(--line);
   border-radius: .4rem;
   padding: .65rem;
@@ -360,6 +414,7 @@ td {
   padding: .7rem;
   border-bottom: 1px solid #d3dbe6;
   vertical-align: top;
+  overflow-wrap: anywhere;
 }
 .split-grid {
   display: grid;
@@ -646,6 +701,7 @@ td {
 .form-hint {
   color: var(--danger);
   font-weight: 600;
+  overflow-wrap: anywhere;
 }
 .field-error {
   font-size: .82rem;
@@ -664,16 +720,86 @@ td {
 
 @media (max-width: 700px) {
   header {
-    align-items: flex-start;
-    gap: .75rem;
+    align-items: stretch;
+    gap: 0;
     padding: 1rem;
     flex-direction: column;
   }
-  .welcome { margin: 0; }
-  nav { flex-wrap: wrap; }
+  .header-main {
+    width: 100%;
+    justify-content: space-between;
+    gap: .75rem;
+  }
+  .header-panel {
+    display: flex;
+    width: 100%;
+    flex: none;
+    align-items: stretch;
+    flex-direction: column;
+    max-height: 0;
+    opacity: 0;
+    overflow: hidden;
+    transition: max-height .28s ease, opacity .2s ease, padding-top .28s ease;
+  }
+  .header-panel.open {
+    max-height: 70vh;
+    opacity: 1;
+    padding-top: .85rem;
+  }
+  .header-panel > * {
+    min-height: 0;
+    min-width: 0;
+  }
+  .menu-toggle {
+    display: inline-grid;
+    flex: 0 0 auto;
+  }
+  .welcome {
+    margin: 0 0 .75rem;
+    overflow-wrap: anywhere;
+  }
+  nav {
+    align-items: stretch;
+    flex-direction: column;
+    gap: .5rem;
+  }
+  nav a,
+  nav button {
+    width: 100%;
+    min-height: 2.75rem;
+    text-align: left;
+  }
+  nav a {
+    display: grid;
+    align-items: center;
+  }
+  main {
+    margin: 1rem auto;
+    padding: 0 .75rem;
+  }
   .session-alert {
     align-items: stretch;
     flex-direction: column;
+  }
+  .session-alert button,
+  .page-actions a,
+  .page-actions button,
+  .button-link,
+  .page-title a,
+  .page-title button,
+  .form-actions button {
+    width: 100%;
+    text-align: center;
+  }
+  button.secondary {
+    margin-left: 0;
+  }
+  .page-title > div {
+    display: grid;
+    gap: .5rem;
+  }
+  .card {
+    padding: 1rem;
   }
   .stats { grid-template-columns: 1fr; }
   .manager-goal-grid { grid-template-columns: 1fr; }
@@ -683,6 +809,19 @@ td {
   }
   .split-grid { grid-template-columns: 1fr; }
   .page-title {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .page-title h1,
+  .page-title h2,
+  .step-title h2 {
+    overflow-wrap: anywhere;
+  }
+  .form-tabs {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .form-actions {
     align-items: stretch;
     flex-direction: column;
   }
@@ -700,5 +839,51 @@ td {
   .pagination {
     align-items: stretch;
     flex-direction: column;
+  }
+  .side-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .side-actions {
+    justify-content: stretch;
+  }
+  .side-actions button,
+  .pagination button {
+    flex: 1 1 100%;
+  }
+  .stats strong,
+  .goal-summary-card strong {
+    font-size: 1.6rem;
+    overflow-wrap: anywhere;
+  }
+  .table-card {
+    overflow-x: auto;
+  }
+  table:not(.records-table) {
+    min-width: 42rem;
+  }
+}
+
+@media (max-width: 420px) {
+  .brand {
+    font-size: .98rem;
+  }
+  .brand img {
+    width: 2rem;
+    height: 2rem;
+  }
+  .step-title {
+    gap: .65rem;
+  }
+  .step-title span {
+    width: 1.75rem;
+    height: 1.75rem;
+    flex: 0 0 auto;
+  }
+  button,
+  .page-title a,
+  .button-link {
+    padding-left: .8rem;
+    padding-right: .8rem;
   }
 }
