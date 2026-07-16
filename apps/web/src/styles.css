@@ -181,27 +181,45 @@ main {
   font-weight: 700;
 }
 .site-footer {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) minmax(0, 1fr);
   align-items: center;
-  justify-content: space-between;
   gap: 1rem;
   padding: 1.25rem 5%;
   background: var(--blue-strong);
   border-top: 1px solid #0d3474;
   color: #dceaff;
 }
-.site-footer div {
+.footer-section {
   display: flex;
   align-items: center;
   gap: .75rem;
   flex-wrap: wrap;
+  min-width: 0;
 }
-.site-footer strong {
+.footer-support {
+  justify-content: flex-start;
+}
+.footer-legal {
+  justify-content: center;
+  text-align: center;
+}
+.footer-version {
+  justify-content: flex-end;
+}
+.site-footer strong,
+.site-footer a {
   color: #ffffff;
 }
-.site-footer span {
+.site-footer span,
+.site-footer a {
   font-size: .92rem;
   font-weight: 600;
+}
+.site-footer a {
+  text-decoration: underline;
+  text-decoration-color: #9fc1ef;
+  text-underline-offset: .18rem;
 }
 .card {
   background: var(--surface);
@@ -820,12 +838,17 @@ td {
     padding: 0 .75rem;
   }
   .site-footer {
-    align-items: flex-start;
-    flex-direction: column;
+    grid-template-columns: 1fr;
+    justify-items: center;
+    text-align: center;
     padding: 1.1rem 1rem calc(1.1rem + env(safe-area-inset-bottom));
   }
-  .site-footer div {
-    align-items: flex-start;
+  .footer-section,
+  .footer-support,
+  .footer-legal,
+  .footer-version {
+    align-items: center;
+    justify-content: center;
     flex-direction: column;
     gap: .25rem;
   }

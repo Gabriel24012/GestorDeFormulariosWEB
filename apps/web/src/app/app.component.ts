@@ -50,13 +50,16 @@ import { AuthService } from './core/auth.service';
 }
 <main><router-outlet/></main>
 <footer class="site-footer">
-  <div>
+  <div class="footer-section footer-support">
+    <strong>Soporte</strong>
+    <a href="mailto:porto1472@gmail.com">porto1472@gmail.com</a>
+    <a href="tel:+524491985370">4491985370</a>
+  </div>
+  <div class="footer-section footer-legal">
     <strong>© 2026 todos los derechos reservados.</strong>
     <span>Uso exclusivo para personal autorizado.</span>
   </div>
-  <div>
-    <span>Soporte: porto1472@gmail.com</span>
-    <span>4491985370</span>
+  <div class="footer-section footer-version">
     <span>Versión 1.0.0</span>
   </div>
 </footer>`
