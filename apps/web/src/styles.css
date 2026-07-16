@@ -719,6 +719,11 @@ td {
 }
 
 @media (max-width: 700px) {
+  html,
+  body {
+    max-width: 100%;
+    overflow-x: hidden;
+  }
   header {
     align-items: stretch;
     gap: 0;
@@ -799,7 +804,30 @@ td {
     gap: .5rem;
   }
   .card {
+    max-width: 100%;
     padding: 1rem;
+  }
+  .card:has(table),
+  .table-card,
+  .goals-table-card,
+  .records-table-card {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .card:has(table) table,
+  .table-card table {
+    width: max-content;
+    min-width: 100%;
+    table-layout: auto;
+  }
+  th {
+    white-space: nowrap;
+  }
+  td {
+    white-space: nowrap;
+  }
+  td .progress {
+    min-width: 6rem;
   }
   .stats { grid-template-columns: 1fr; }
   .manager-goal-grid { grid-template-columns: 1fr; }
@@ -856,11 +884,11 @@ td {
     font-size: 1.6rem;
     overflow-wrap: anywhere;
   }
-  .table-card {
-    overflow-x: auto;
-  }
   table:not(.records-table) {
-    min-width: 42rem;
+    min-width: 38rem;
+  }
+  .goals-table {
+    min-width: 54rem;
   }
 }
 
