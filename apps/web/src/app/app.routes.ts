@@ -2,7 +2,7 @@ import { Routes } from '@angular/router';
 import { authGuard, roleGuard } from './core/guards';
 import { LoginComponent, ConfirmAccountComponent, InviteSignupComponent } from './features/login.component';
 import { CaptureComponent } from './features/capture.component';
-import { AdminDashboardComponent } from './features/dashboard.component';
+import { AdminDashboardComponent, AdminManagerDetailComponent, AdminManagerGoalsComponent, AdminRecordsComponent } from './features/dashboard.component';
 import { ManagerCapturerDetailComponent, ManagerCapturersComponent, ManagerDashboardComponent, ManagerGoalsComponent, ManagerRecordsComponent } from './features/manager.component';
 import { TeamComponent } from './features/team.component';
 import { ExportsComponent } from './features/exports.component';
@@ -13,6 +13,9 @@ export const routes: Routes = [
   { path: 'auth/invite/:token', component: InviteSignupComponent },
   { path: 'captura', component: CaptureComponent, canActivate: [authGuard, roleGuard('capturador')] },
   { path: 'admin', component: AdminDashboardComponent, canActivate: [authGuard, roleGuard('admin')] },
+  { path: 'admin/gestores/:id', component: AdminManagerDetailComponent, canActivate: [authGuard, roleGuard('admin')] },
+  { path: 'admin/registros', component: AdminRecordsComponent, canActivate: [authGuard, roleGuard('admin')] },
+  { path: 'admin/metas', component: AdminManagerGoalsComponent, canActivate: [authGuard, roleGuard('admin')] },
   { path: 'gestor', component: ManagerDashboardComponent, canActivate: [authGuard, roleGuard('gestor')] },
   { path: 'gestor/capturadores', component: ManagerCapturersComponent, canActivate: [authGuard, roleGuard('gestor')] },
   { path: 'gestor/capturadores/agregar', component: TeamComponent, canActivate: [authGuard, roleGuard('gestor')] },

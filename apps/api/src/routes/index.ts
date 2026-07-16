@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { Router } from 'express';
 import ExcelJS from 'exceljs';
 import { z } from 'zod';
@@ -12,13 +12,25 @@ const router = Router();
 router.get('/invites/:token', async (req, res, next) => {
   try {
     const { token } = inviteTokenParam.parse(req.params);
+    const hash = tokenHash(token);
+    const { data: managerInvite, error: managerInviteError } = await serviceDb
+      .from('manager_invites')
+      .select('id,placeholder_name,status,admin:profiles!manager_invites_admin_id_fkey(full_name)')
+      .eq('token_hash', hash)
+      .maybeSingle();
+    if (managerInviteError) throw managerInviteError;
+    if (managerInvite?.status === 'pending') {
+      res.json({ data: { role: 'gestor', placeholder_name: managerInvite.placeholder_name, manager_name: (managerInvite.admin as any)?.full_name ?? null } });
+      return;
+    }
+
     const { data, error } = await serviceDb
       .from('capturer_invites')
       .select('id,placeholder_name,status,manager:profiles!capturer_invites_manager_id_fkey(full_name)')
-      .eq('token_hash', tokenHash(token))
+      .eq('token_hash', hash)
       .single();
     if (error || !data || data.status !== 'pending') return res.status(404).json({ error: 'El enlace no es valido o ya fue usado.' });
-    res.json({ data: { placeholder_name: data.placeholder_name, manager_name: (data.manager as any)?.full_name ?? null } });
+    res.json({ data: { role: 'capturador', placeholder_name: data.placeholder_name, manager_name: (data.manager as any)?.full_name ?? null } });
   } catch (e) { next(e); }
 });
 
@@ -26,7 +38,45 @@ router.post('/invites/:token/complete', async (req, res, next) => {
   try {
     const { token } = inviteTokenParam.parse(req.params);
     const body = completeInviteSchema.parse(req.body);
-    const { data: invite, error: inviteError } = await serviceDb.from('capturer_invites').select('*').eq('token_hash', tokenHash(token)).single();
+    const hash = tokenHash(token);
+    const { data: managerInvite, error: managerInviteError } = await serviceDb.from('manager_invites').select('*').eq('token_hash', hash).maybeSingle();
+    if (managerInviteError) throw managerInviteError;
+    if (managerInvite?.status === 'pending') {
+      const { data: created, error: createError } = await serviceDb.auth.admin.createUser({
+        email: body.email.toLowerCase(),
+        password: body.password,
+        email_confirm: true,
+        user_metadata: { full_name: body.full_name }
+      });
+      if (createError || !created.user) {
+        if (String(createError?.message ?? '').toLowerCase().includes('already')) return res.status(409).json({ error: 'Ese correo ya esta registrado. Usa otro correo o inicia sesion.', field: 'email' });
+        throw createError ?? new Error('No se pudo crear el usuario.');
+      }
+      const { data: profile, error: profileError } = await serviceDb.from('profiles').insert({
+        id: created.user.id,
+        email: body.email.toLowerCase(),
+        full_name: body.full_name,
+        role: 'gestor',
+        parent_user_id: managerInvite.admin_id,
+        is_active: true,
+        onboarding_completed_at: new Date().toISOString()
+      }).select('id,email,full_name,role,parent_user_id,is_active,onboarding_completed_at').single();
+      if (profileError) {
+        await serviceDb.auth.admin.deleteUser(created.user.id);
+        throw profileError;
+      }
+      const { error: updateError } = await serviceDb.from('manager_invites').update({
+        status: 'used',
+        used_by_user_id: created.user.id,
+        used_at: new Date().toISOString()
+      }).eq('id', managerInvite.id).eq('status', 'pending');
+      if (updateError) throw updateError;
+      await audit(created.user.id, 'profile', created.user.id, 'complete_manager_invite');
+      res.status(201).json({ data: profile });
+      return;
+    }
+
+    const { data: invite, error: inviteError } = await serviceDb.from('capturer_invites').select('*').eq('token_hash', hash).single();
     if (inviteError || !invite || invite.status !== 'pending') return res.status(404).json({ error: 'El enlace no es valido o ya fue usado.' });
 
     const { data: created, error: createError } = await serviceDb.auth.admin.createUser({
@@ -84,9 +134,142 @@ router.post('/auth/complete-onboarding', async (req, res, next) => {
 
 router.get('/gestores', authorize('admin'), async (_req, res, next) => {
   try {
-    const { data, error } = await serviceDb.from('profiles').select('*').eq('role', 'gestor').order('full_name');
+    const [{ data, error }, { data: invites, error: invitesError }] = await Promise.all([
+      serviceDb.from('profiles').select('*').eq('role', 'gestor').order('full_name'),
+      serviceDb.from('manager_invites').select('id,placeholder_name,status,created_at,used_at').eq('status', 'pending').order('created_at', { ascending: false })
+    ]);
     if (error) throw error;
+    if (invitesError) throw invitesError;
+    res.json({ data: [
+      ...(data ?? []).map((item) => ({ ...item, kind: 'profile', status_label: item.is_active ? 'Activo' : 'Inactivo' })),
+      ...(invites ?? []).map((item) => ({ id: item.id, kind: 'invite', placeholder_name: item.placeholder_name, status_label: 'Pendiente', created_at: item.created_at }))
+    ] });
+  } catch (e) { next(e); }
+});
+
+router.get('/admin/managers', authorize('admin'), async (_req, res, next) => {
+  try {
+    res.json({ data: await adminManagerRows() });
+  } catch (e) { next(e); }
+});
+
+router.get('/admin/managers/:id', authorize('admin'), async (req, res, next) => {
+  try {
+    const { id } = idParam.parse(req.params);
+    res.json({ data: await adminManagerDetail(id) });
+  } catch (e) { next(e); }
+});
+
+router.get('/admin/records', authorize('admin'), async (req, res, next) => {
+  try {
+    const page = z.coerce.number().int().min(1).default(1).parse(req.query.page);
+    const limit = z.coerce.number().int().min(1).max(100).default(25).parse(req.query.limit);
+    const filters = managerRecordFiltersSchema.extend({ manager_id: z.string().uuid('Gestor invalido.').optional() }).parse(req.query);
+    let query = adminRecordsQuery();
+    if (filters.manager_id) query = query.eq('manager_id', filters.manager_id);
+    query = applyManagerRecordFilters(query, filters);
+    const { data, error, count } = await query.order('created_at', { ascending: false }).range((page - 1) * limit, page * limit - 1);
+    if (error) throw error;
+    res.json({ data, meta: { page, limit, total: count ?? 0 } });
+  } catch (e) { next(e); }
+});
+
+router.post('/admin/manager-invite-links', authorize('admin'), async (req, res, next) => {
+  try {
+    const body = inviteLinkSchema.parse(req.body);
+    const token = randomBytes(32).toString('base64url');
+    const { data, error } = await serviceDb.from('manager_invites').insert({
+      token_hash: tokenHash(token),
+      admin_id: req.auth!.profile.id,
+      placeholder_name: body.placeholder_name
+    }).select('id,placeholder_name,status,created_at').single();
+    if (error) throw error;
+    await audit(req.auth!.profile.id, 'manager_invites', data.id, 'create_manager_invite_link');
+    res.status(201).json({ data: { ...data, link: inviteLink(token) } });
+  } catch (e) { next(e); }
+});
+
+router.post('/admin/manager-invites/:id/resend-or-copy', authorize('admin'), async (req, res, next) => {
+  try {
+    const { id } = idParam.parse(req.params);
+    const token = randomBytes(32).toString('base64url');
+    const { data, error } = await serviceDb.from('manager_invites')
+      .update({ token_hash: tokenHash(token) })
+      .eq('id', id)
+      .eq('admin_id', req.auth!.profile.id)
+      .eq('status', 'pending')
+      .select('id,placeholder_name,status')
+      .single();
+    if (error || !data) return res.status(404).json({ error: 'Invitacion pendiente no encontrada.' });
+    await audit(req.auth!.profile.id, 'manager_invites', id, 'regenerate_manager_invite_link');
+    res.json({ data: { ...data, link: inviteLink(token) } });
+  } catch (e) { next(e); }
+});
+
+router.post('/admin/manager-goals', authorize('admin'), async (req, res, next) => {
+  try {
+    const body = goalSchema.parse(req.body);
+    if (!body.capturer_id) return res.status(422).json({ error: 'Selecciona un gestor.' });
+    if (!body.ends_on) return res.status(422).json({ error: 'La fecha final es obligatoria.' });
+    await assertManagerExists(body.capturer_id);
+    if (body.ends_on < body.starts_on) return res.status(422).json({ error: 'La fecha final no puede ser anterior al inicio.' });
+    const { data: existing, error: existingError } = await serviceDb
+      .from('capturer_goals')
+      .select('id')
+      .eq('manager_id', body.capturer_id)
+      .is('capturer_id', null)
+      .eq('status', 'active')
+      .is('archived_at', null)
+      .limit(1);
+    if (existingError) throw existingError;
+    if (existing?.length) return res.status(409).json({ error: 'Este gestor ya tiene una meta principal activa. Modifica o elimina la meta existente.' });
+    const period = goalPeriod(body.period_type, body.starts_on, body.ends_on);
+    const { data, error } = await serviceDb
+      .from('capturer_goals')
+      .insert({ manager_id: body.capturer_id, capturer_id: null, period_type: body.period_type, target_count: body.target_count, starts_on: period.starts_on, ends_on: period.ends_on, created_by_role: 'admin' })
+      .select('*')
+      .single();
+    if (error) throw error;
+    await audit(req.auth!.profile.id, 'capturer_goals', data.id, 'admin_create_manager_goal');
+    res.status(201).json({ data });
+  } catch (e) { next(e); }
+});
+
+router.patch('/admin/manager-goals/:id', authorize('admin'), async (req, res, next) => {
+  try {
+    const { id } = idParam.parse(req.params);
+    const body = goalPatchSchema.parse(req.body);
+    if (!body.ends_on) return res.status(422).json({ error: 'La fecha final es obligatoria.' });
+    const { data: current, error: currentError } = await serviceDb.from('capturer_goals').select('*').eq('id', id).is('capturer_id', null).single();
+    if (currentError) throw currentError;
+    await assertManagerExists(current.manager_id);
+    const period = goalPeriod(body.period_type ?? current.period_type, body.starts_on ?? current.starts_on, body.ends_on);
+    if (period.ends_on < period.starts_on) return res.status(422).json({ error: 'La fecha final no puede ser anterior al inicio.' });
+    const { data, error } = await serviceDb
+      .from('capturer_goals')
+      .update({
+        period_type: body.period_type ?? current.period_type,
+        target_count: body.target_count ?? current.target_count,
+        starts_on: period.starts_on,
+        ends_on: period.ends_on
+      })
+      .eq('id', id)
+      .is('capturer_id', null)
+      .select('*')
+      .single();
+    if (error) throw error;
+    await audit(req.auth!.profile.id, 'capturer_goals', id, 'admin_update_manager_goal');
     res.json({ data });
+  } catch (e) { next(e); }
+});
+
+router.delete('/admin/manager-goals/:id', authorize('admin'), async (req, res, next) => {
+  try {
+    const { id } = idParam.parse(req.params);
+    const { error } = await serviceDb.from('capturer_goals').delete().eq('id', id).is('capturer_id', null);
+    if (error) throw error;
+    await audit(req.auth!.profile.id, 'capturer_goals', id, 'admin_delete_manager_goal');
+    res.status(204).end();
   } catch (e) { next(e); }
 });
 
@@ -110,6 +293,23 @@ router.patch('/gestores/:id', authorize('admin'), async (req, res, next) => {
     const { data, error } = await serviceDb.from('profiles').update(body).eq('id', id).eq('role', 'gestor').select().single();
     if (error) throw error;
     await audit(req.auth!.profile.id, 'profile', id, 'update_gestor');
+    res.json({ data });
+  } catch (e) { next(e); }
+});
+
+router.delete('/gestores/:id', authorize('admin'), async (req, res, next) => {
+  try {
+    const { id } = idParam.parse(req.params);
+    if (id === req.auth!.profile.id) return res.status(422).json({ error: 'No puedes eliminar tu propio usuario.' });
+    const { data, error } = await serviceDb
+      .from('profiles')
+      .update({ is_active: false })
+      .eq('id', id)
+      .eq('role', 'gestor')
+      .select('id,email,full_name,role,is_active')
+      .single();
+    if (error) throw error;
+    await audit(req.auth!.profile.id, 'profile', id, 'delete_gestor');
     res.json({ data });
   } catch (e) { next(e); }
 });
@@ -450,6 +650,12 @@ router.delete('/manager/goals/:id', authorize('gestor'), async (req, res, next) 
   } catch (e) { next(e); }
 });
 
+router.get('/manager/record-filter-options', authorize('gestor'), async (req, res, next) => {
+  try {
+    res.json({ data: await managerRecordFilterOptions(req.auth!.profile.id) });
+  } catch (e) { next(e); }
+});
+
 router.get('/manager/records', authorize('gestor'), async (req, res, next) => {
   try {
     const page = z.coerce.number().int().min(1).default(1).parse(req.query.page);
@@ -463,12 +669,32 @@ router.get('/manager/records', authorize('gestor'), async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+router.post('/manager/demo-records', authorize('gestor'), async (req, res, next) => {
+  try {
+    ensureDemoDataEnabled();
+    const body = z.object({ count: z.coerce.number().int().min(1).max(500).default(200) }).parse(req.body ?? {});
+    const result = await createDemoRecords(req.auth!.profile.id, body.count);
+    await audit(req.auth!.profile.id, 'records', null, 'create_demo_records');
+    res.status(201).json({ data: result });
+  } catch (e) { next(e); }
+});
+
+router.delete('/manager/demo-records', authorize('gestor'), async (req, res, next) => {
+  try {
+    ensureDemoDataEnabled();
+    const result = await deleteDemoRecords(req.auth!.profile.id);
+    await audit(req.auth!.profile.id, 'records', null, 'delete_demo_records');
+    res.json({ data: result });
+  } catch (e) { next(e); }
+});
+
 router.get('/exports/records', authorize('admin', 'gestor', 'capturador'), async (req, res, next) => {
   try {
     const format = z.enum(['csv', 'xlsx']).default('csv').parse(req.query.format);
-    const filters = managerRecordFiltersSchema.parse(req.query);
+    const filters = managerRecordFiltersSchema.extend({ manager_id: z.string().uuid('Gestor invalido.').optional() }).parse(req.query);
     const db = req.auth!.profile.role === 'capturador' ? req.auth!.db : serviceDb;
     let query = db.from('records').select('id,leadership_name,section_code,first_name,paternal_surname,maternal_surname,address,exterior_number,neighborhood,district,postal_code,birth_date,phone,electoral_key,observations,status,created_at,manager_id,capturer_id,capturer:profiles!records_capturer_id_fkey(full_name,email)');
+    if (req.auth!.profile.role === 'admin' && filters.manager_id) query = query.eq('manager_id', filters.manager_id);
     if (req.auth!.profile.role === 'gestor') query = query.eq('manager_id', req.auth!.profile.id);
     if (req.auth!.profile.role === 'capturador') query = query.eq('capturer_id', req.auth!.profile.id);
     query = applyManagerRecordFilters(query, filters);
@@ -507,6 +733,198 @@ function inviteLink(token: string) {
 
 type ManagerRecordFilters = z.infer<typeof managerRecordFiltersSchema>;
 type GoalPeriodType = 'daily' | 'weekly' | 'monthly';
+const demoMarker = '[DEMO-GESTOR]';
+
+function ensureDemoDataEnabled() {
+  if (env.ENABLE_DEMO_DATA) return;
+  const err = new Error('Los datos demo estan desactivados. Agrega ENABLE_DEMO_DATA=true en .env para usar esta herramienta.');
+  Object.assign(err, { status: 403 });
+  throw err;
+}
+
+async function createDemoRecords(managerId: string, count: number) {
+  const { data: capturers, error: capturersError } = await serviceDb
+    .from('profiles')
+    .select('id,full_name')
+    .eq('parent_user_id', managerId)
+    .eq('role', 'capturador')
+    .eq('is_active', true)
+    .order('full_name');
+  if (capturersError) throw capturersError;
+  if (!capturers?.length) {
+    const err = new Error('Necesitas al menos un capturador activo para generar registros demo.');
+    Object.assign(err, { status: 422 });
+    throw err;
+  }
+
+  const now = Date.now();
+  const batchId = randomUUID().replace(/-/g, '').toUpperCase();
+  const sessionRows = capturers.map((capturer, index) => ({
+    capturer_id: capturer.id,
+    manager_id: managerId,
+    leadership_name: `DEMO ${capturer.full_name}`,
+    section_code: `D-${String(index + 1).padStart(3, '0')}`
+  }));
+  const { data: sessions, error: sessionsError } = await serviceDb
+    .from('capture_sessions')
+    .insert(sessionRows)
+    .select('id,capturer_id,manager_id,leadership_name,section_code');
+  if (sessionsError) throw sessionsError;
+  if (!sessions?.length) throw new Error('No se pudieron crear sesiones demo.');
+
+  const firstNames = ['Ana', 'Luis', 'Maria', 'Jose', 'Carmen', 'Miguel', 'Sofia', 'Jorge', 'Laura', 'Daniel'];
+  const paternalSurnames = ['Garcia', 'Hernandez', 'Martinez', 'Lopez', 'Gonzalez', 'Perez', 'Sanchez', 'Ramirez', 'Torres', 'Flores'];
+  const maternalSurnames = ['Cruz', 'Morales', 'Reyes', 'Vargas', 'Castillo', 'Ortiz', 'Rojas', 'Mendoza', 'Aguilar', 'Nunez'];
+  const neighborhoods = ['Centro', 'Las Palmas', 'San Miguel', 'El Mirador', 'La Esperanza', 'Jardines'];
+  const districts = ['Norte', 'Sur', 'Este', 'Oeste', 'Centro'];
+  const records = Array.from({ length: count }, (_, index) => {
+    const session = sessions[index % sessions.length];
+    const unique = `${batchId.slice(0, 10)}${String(index).padStart(4, '0')}`;
+    const phoneSeed = Number(batchId.replace(/\D/g, '').padEnd(6, '7').slice(0, 6));
+    const phoneSuffix = String((phoneSeed * 1000 + index) % 100000000).padStart(8, '0');
+    const daysAgo = index % 45;
+    return {
+      capture_session_id: session.id,
+      capturer_id: session.capturer_id,
+      manager_id: managerId,
+      leadership_name: session.leadership_name,
+      section_code: session.section_code,
+      first_name: firstNames[index % firstNames.length],
+      paternal_surname: paternalSurnames[index % paternalSurnames.length],
+      maternal_surname: maternalSurnames[index % maternalSurnames.length],
+      address: `Calle Demo ${index + 1}`,
+      exterior_number: String(100 + index),
+      neighborhood: neighborhoods[index % neighborhoods.length],
+      district: districts[index % districts.length],
+      postal_code: String(64000 + (index % 900)).padStart(5, '0'),
+      birth_date: demoBirthDate(index),
+      phone: demoPhone(phoneSuffix),
+      electoral_key: demoElectoralKey(unique),
+      observations: `${demoMarker} Registro generado para pruebas de gestor.`,
+      created_at: new Date(now - daysAgo * 24 * 60 * 60 * 1000).toISOString()
+    };
+  });
+  const { error: recordsError } = await serviceDb.from('records').insert(records);
+  if (recordsError) throw recordsError;
+  return { created: records.length, marker: demoMarker };
+}
+
+async function deleteDemoRecords(managerId: string) {
+  const { data: records, error: recordsError } = await serviceDb
+    .from('records')
+    .select('id')
+    .eq('manager_id', managerId)
+    .ilike('observations', `%${demoMarker}%`);
+  if (recordsError) throw recordsError;
+  const ids = (records ?? []).map((record) => record.id);
+  if (!ids.length) return { deleted: 0, marker: demoMarker };
+  const { error: versionsError } = await serviceDb.from('record_versions').delete().in('record_id', ids);
+  if (versionsError) throw versionsError;
+  const { error: deleteError } = await serviceDb.from('records').delete().in('id', ids).eq('manager_id', managerId);
+  if (deleteError) throw deleteError;
+  return { deleted: ids.length, marker: demoMarker };
+}
+
+async function managerRecordFilterOptions(managerId: string) {
+  const { data, error } = await serviceDb
+    .from('records')
+    .select('district,neighborhood')
+    .eq('manager_id', managerId);
+  if (error) throw error;
+  return {
+    districts: distinctSorted((data ?? []).map((record) => record.district)),
+    neighborhoods: distinctSorted((data ?? []).map((record) => record.neighborhood))
+  };
+}
+
+function distinctSorted(values: Array<string | null | undefined>) {
+  return [...new Set(values.map((value) => String(value ?? '').trim()).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, 'es'));
+}
+
+function demoBirthDate(index: number) {
+  const year = 1965 + (index % 35);
+  const month = String((index % 12) + 1).padStart(2, '0');
+  const day = String((index % 27) + 1).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function demoPhone(value: string) {
+  return `55${value}`.slice(0, 10);
+}
+
+function demoElectoralKey(value: string) {
+  return `DEMO${value}ABCDEFGH`.slice(0, 18).padEnd(18, '0');
+}
+
+async function adminManagerRows() {
+  const [{ data: managers, error: managersError }, { data: capturers, error: capturersError }, { data: records, error: recordsError }, { data: goals, error: goalsError }] = await Promise.all([
+    serviceDb.from('profiles').select('id,email,full_name,is_active,onboarding_completed_at,created_at').eq('role', 'gestor').order('full_name'),
+    serviceDb.from('profiles').select('id,parent_user_id,is_active').eq('role', 'capturador'),
+    serviceDb.from('records').select('id,manager_id,created_at,status').eq('status', 'active'),
+    serviceDb.from('capturer_goals').select('id,manager_id,capturer_id,period_type,target_count,starts_on,ends_on,status,archived_at,created_by_role,created_at').eq('status', 'active').is('archived_at', null)
+  ]);
+  if (managersError) throw managersError;
+  if (capturersError) throw capturersError;
+  if (recordsError) throw recordsError;
+  if (goalsError) throw goalsError;
+  return (managers ?? []).map((manager) => {
+    const managerCapturers = (capturers ?? []).filter((item) => item.parent_user_id === manager.id);
+    const managerRecords = (records ?? []).filter((item) => item.manager_id === manager.id);
+    const activeGoals = (goals ?? [])
+      .filter((item) => item.manager_id === manager.id && !item.capturer_id)
+      .map((goal) => ({ ...goal, progress: goalProgress(goal, localDateString(), managerRecords) }))
+      .sort((a, b) => Number(b.created_by_role === 'admin') - Number(a.created_by_role === 'admin') || String(b.created_at).localeCompare(String(a.created_at)));
+    return {
+      ...manager,
+      total_capturadores: managerCapturers.length,
+      capturadores_activos: managerCapturers.filter((item) => item.is_active).length,
+      total_records: managerRecords.length,
+      active_goals: activeGoals.length,
+      active_goals_list: activeGoals,
+      main_goal: activeGoals[0] ?? null,
+      last_activity_at: managerRecords.map((item) => item.created_at).sort().at(-1) ?? null
+    };
+  });
+}
+
+async function adminManagerDetail(managerId: string) {
+  const [{ data: manager, error: managerError }, { data: capturers, error: capturersError }, { data: records, error: recordsError }, { data: goals, error: goalsError }] = await Promise.all([
+    serviceDb.from('profiles').select('id,email,full_name,is_active,onboarding_completed_at,created_at').eq('id', managerId).eq('role', 'gestor').single(),
+    serviceDb.from('profiles').select('id,email,full_name,is_active,onboarding_completed_at,created_at').eq('parent_user_id', managerId).eq('role', 'capturador'),
+    serviceDb.from('records').select('id,capturer_id,first_name,paternal_surname,phone,neighborhood,district,created_at,status').eq('manager_id', managerId).eq('status', 'active'),
+    serviceDb.from('capturer_goals').select('id,capturer_id,period_type,target_count,starts_on,ends_on,status,archived_at,created_by_role,created_at').eq('manager_id', managerId).eq('status', 'active').is('archived_at', null)
+  ]);
+  if (managerError) throw managerError;
+  if (capturersError) throw capturersError;
+  if (recordsError) throw recordsError;
+  if (goalsError) throw goalsError;
+  const rows = records ?? [];
+  const ranking = (capturers ?? []).map((capturer) => {
+    const capturerRecords = rows.filter((record) => record.capturer_id === capturer.id);
+    return {
+      ...capturer,
+      total_records: capturerRecords.length,
+      last_record_at: capturerRecords.map((record) => record.created_at).sort().at(-1) ?? null
+    };
+  }).sort((a, b) => b.total_records - a.total_records);
+  return {
+    manager,
+    total_records: rows.length,
+    total_capturadores: capturers?.length ?? 0,
+    active_goals: (goals ?? []).filter((goal) => !goal.capturer_id).length,
+    active_goals_list: (goals ?? []).filter((goal) => !goal.capturer_id).map((goal) => ({ ...goal, progress: goalProgress(goal, localDateString(), rows) })),
+    ranking,
+    top_zones: topZones(rows),
+    recent_records: [...rows].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).slice(0, 10)
+  };
+}
+
+function adminRecordsQuery() {
+  return serviceDb
+    .from('records')
+    .select('id,leadership_name,section_code,first_name,paternal_surname,maternal_surname,address,exterior_number,neighborhood,district,postal_code,birth_date,phone,electoral_key,observations,status,created_at,manager_id,capturer_id,manager:profiles!records_manager_id_fkey(full_name,email),capturer:profiles!records_capturer_id_fkey(full_name,email)', { count: 'exact' });
+}
 
 function managerRecordsQuery(managerId: string) {
   return serviceDb
@@ -522,7 +940,7 @@ function applyManagerRecordFilters<T extends {
   or: (filters: string) => T;
 }>(query: T, filters: ManagerRecordFilters) {
   let next = query;
-  if (filters.q) next = applyRecordSearch(next, filters.q);
+  if (filters.q) next = applyManagerRecordSearch(next, filters.q);
   if (filters.capturer_id) next = next.eq('capturer_id', filters.capturer_id);
   if (filters.date_from) next = next.gte('created_at', zonedDateTimeToUtc(filters.date_from, 0, 0, 0).toISOString());
   if (filters.date_to) next = next.lte('created_at', zonedDateTimeToUtc(addDays(filters.date_to, 1), 0, 0, 0).toISOString());
@@ -568,7 +986,9 @@ async function managerOverview(managerId: string) {
   if (recordsError) throw recordsError;
   const rows = records ?? [];
   const ranges = recordDateRanges();
-  const teamGoal = goals.find((goal) => !goal.capturer_id) ?? null;
+  const teamGoals = goals.filter((goal) => !goal.capturer_id);
+  const adminGoal = teamGoals.find((goal) => goal.created_by_role === 'admin') ?? null;
+  const ownTeamGoal = teamGoals.find((goal) => goal.created_by_role !== 'admin') ?? null;
   const ranking = (capturers ?? []).map((capturer) => {
     const capturerRecords = rows.filter((record) => record.capturer_id === capturer.id);
     const last = capturerRecords.map((record) => record.created_at).sort().at(-1) ?? null;
@@ -586,7 +1006,8 @@ async function managerOverview(managerId: string) {
     records_today: rows.filter((record) => inRange(record.created_at, ranges.today)).length,
     records_week: rows.filter((record) => inRange(record.created_at, ranges.week)).length,
     records_month: rows.filter((record) => inRange(record.created_at, ranges.month)).length,
-    team_goal: teamGoal ? { ...teamGoal, progress: goalProgress(teamGoal, localDateString(), goalRecords(teamGoal, rows)) } : null,
+    admin_goal: adminGoal ? { ...adminGoal, progress: goalProgress(adminGoal, localDateString(), goalRecords(adminGoal, rows)) } : null,
+    team_goal: ownTeamGoal ? { ...ownTeamGoal, progress: goalProgress(ownTeamGoal, localDateString(), goalRecords(ownTeamGoal, rows)) } : null,
     top_zones: topZones(rows),
     ranking,
     inactive_alerts: ranking.filter((item) => !item.last_record_at || new Date(item.last_record_at) < ranges.inactiveSince)
@@ -660,6 +1081,15 @@ async function assertManagerOwnsCapturer(managerId: string, capturerId: string) 
   const { data, error } = await serviceDb.from('profiles').select('id').eq('id', capturerId).eq('role', 'capturador').eq('parent_user_id', managerId).single();
   if (error || !data) {
     const err = new Error('Capturador no encontrado en tu equipo.');
+    Object.assign(err, { status: 404 });
+    throw err;
+  }
+}
+
+async function assertManagerExists(managerId: string) {
+  const { data, error } = await serviceDb.from('profiles').select('id').eq('id', managerId).eq('role', 'gestor').single();
+  if (error || !data) {
+    const err = new Error('Gestor no encontrado.');
     Object.assign(err, { status: 404 });
     throw err;
   }
@@ -795,6 +1225,12 @@ function exportRecordRow(row: any) {
 function applyRecordSearch<T extends { or: (filters: string) => T }>(query: T, value: string) {
   const term = value.trim().replace(/[,%]/g, ' ').replace(/\s+/g, ' ');
   const fields = ['first_name', 'paternal_surname', 'maternal_surname', 'phone', 'electoral_key', 'address', 'neighborhood', 'district', 'postal_code', 'leadership_name', 'section_code'];
+  return query.or(fields.map((field) => `${field}.ilike.%${term}%`).join(','));
+}
+
+function applyManagerRecordSearch<T extends { or: (filters: string) => T }>(query: T, value: string) {
+  const term = value.trim().replace(/[,%]/g, ' ').replace(/\s+/g, ' ');
+  const fields = ['first_name', 'paternal_surname', 'maternal_surname', 'phone'];
   return query.or(fields.map((field) => `${field}.ilike.%${term}%`).join(','));
 }
 

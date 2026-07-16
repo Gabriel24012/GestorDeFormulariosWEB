@@ -5,7 +5,8 @@ import { z } from 'zod';
 
 // Funciona tanto con `tsx src/server.ts` como con el JavaScript compilado.
 dotenv.config({
-  path: resolve(dirname(fileURLToPath(import.meta.url)), '../../../../.env')
+  path: resolve(dirname(fileURLToPath(import.meta.url)), '../../../../.env'),
+  override: true
 });
 const schema = z.object({
   SUPABASE_URL: z.string().url(),
@@ -13,7 +14,8 @@ const schema = z.object({
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
   API_PORT: z.coerce.number().int().positive().default(3000),
   CORS_ORIGINS: z.string().default('http://localhost:4200'),
-  APP_URL: z.string().url().default('http://localhost:4200')
+  APP_URL: z.string().url().default('http://localhost:4200'),
+  ENABLE_DEMO_DATA: z.coerce.boolean().default(false)
 });
 
 export const env = schema.parse(process.env);
