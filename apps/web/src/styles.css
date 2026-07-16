@@ -19,7 +19,18 @@
 }
 
 * { box-sizing: border-box; }
-body { margin: 0; }
+html {
+  background: var(--blue-strong);
+}
+body {
+  margin: 0;
+  background: var(--blue-strong);
+}
+app-root {
+  display: block;
+  min-height: 100vh;
+  background: #f7f9fc;
+}
 img,
 svg,
 video,
@@ -839,6 +850,14 @@ td {
   .page-title {
     align-items: stretch;
     flex-direction: column;
+  }
+  .page-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+  .page-actions a,
+  .page-actions button {
+    flex: 1 1 100%;
   }
   .page-title h1,
   .page-title h2,
