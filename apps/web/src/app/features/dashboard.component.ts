@@ -1,6 +1,6 @@
 import { CommonModule } from '@angular/common';
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
-import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
+import { AbstractControl, FormControl, FormGroup, ReactiveFormsModule, ValidationErrors, Validators } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { finalize } from 'rxjs';
 import { ApiService } from '../core/api.service';
@@ -223,15 +223,49 @@ export class AdminManagerDetailComponent implements OnInit {
         <button>Filtrar</button><button type="button" class="secondary" (click)="clear()">Limpiar</button>
       </form>
     </section>
+    @if(editingRecord(); as record) {
+      <section class="card">
+        <div class="page-title">
+          <h2>Editar registro</h2>
+          <button type="button" class="secondary" (click)="cancelEdit()">Cerrar</button>
+        </div>
+        <p class="muted">Editando registro de {{record.capturer?.full_name || 'capturador'}} asignado a {{record.manager?.full_name || 'gestor'}}</p>
+        <form [formGroup]="recordForm" (ngSubmit)="saveRecord()">
+          <div class="grid">
+            @for(field of recordFields; track field.key) {
+              <label>
+                {{field.label}}
+                <input [type]="field.type" [formControlName]="field.key" [placeholder]="field.placeholder" [attr.min]="field.min" [attr.max]="field.max">
+                @if(recordIssue(field.key)) {<small class="field-error">{{recordIssue(field.key)}}</small>}
+              </label>
+            }
+            <label>Observaciones<textarea formControlName="observations"></textarea></label>
+          </div>
+          @if(recordMessage()) {<p class="success">{{recordMessage()}}</p>}
+          @if(recordError()) {<p class="error">{{recordError()}}</p>}
+          <div class="form-actions"><button>Guardar cambios</button></div>
+        </form>
+      </section>
+    }
     <section class="card table-card records-table-card">
-      <p class="muted">{{total()}} registros encontrados. Página {{currentPage()}} de {{totalPages()}}</p>
+      @if(recordsLoading()) {
+        <p class="muted"><span class="skeleton-line skeleton-summary"></span></p>
+      } @else {
+        <p class="muted">{{total()}} registros encontrados. Página {{currentPage()}} de {{totalPages()}}</p>
+      }
       <div class="records-table-scroll">
         <table class="records-table">
           <thead><tr><th>Fecha</th><th>Gestor</th><th>Capturador</th><th>Nombre</th><th>Teléfono</th><th>Clave Electoral</th><th>Fracc.</th><th>Distrito</th><th>C.P.</th></tr></thead>
           <tbody>
-            @for(record of records(); track record.id) {
-              <tr><td>{{dateTimeText(record.created_at)}}</td><td>{{record.manager?.full_name || '-'}}</td><td>{{record.capturer?.full_name || '-'}}</td><td>{{record.first_name}} {{record.paternal_surname}} {{record.maternal_surname || ''}}</td><td>{{record.phone}}</td><td>{{record.electoral_key}}</td><td>{{record.neighborhood || '-'}}</td><td>{{record.district || '-'}}</td><td>{{record.postal_code || '-'}}</td></tr>
-            } @empty {<tr><td colspan="9">No hay registros con esos filtros.</td></tr>}
+            @if(recordsLoading()) {
+              @for(row of [1,2,3,4,5]; track row) {
+                <tr class="skeleton-table-row">@for(cell of [1,2,3,4,5,6,7,8,9]; track cell) {<td><span class="skeleton-line"></span></td>}</tr>
+              }
+            } @else {
+              @for(record of records(); track record.id) {
+                <tr class="clickable-row" [class.active]="editingRecord()?.id === record.id" (click)="editRecord(record)"><td>{{dateTimeText(record.created_at)}}</td><td>{{record.manager?.full_name || '-'}}</td><td>{{record.capturer?.full_name || '-'}}</td><td>{{record.first_name}} {{record.paternal_surname}} {{record.maternal_surname || ''}}</td><td>{{record.phone}}</td><td>{{record.electoral_key}}</td><td>{{record.neighborhood || '-'}}</td><td>{{record.district || '-'}}</td><td>{{record.postal_code || '-'}}</td></tr>
+              } @empty {<tr><td colspan="9">No hay registros con esos filtros.</td></tr>}
+            }
           </tbody>
         </table>
       </div>
@@ -244,8 +278,12 @@ export class AdminRecordsComponent implements OnInit {
   private route = inject(ActivatedRoute);
   managers = signal<AdminManagerRow[]>([]);
   records = signal<RecordItem[]>([]);
+  recordsLoading = signal(true);
   filterOptionsLoading = signal(true);
   filterOptions = signal<{addresses: string[]; districts: string[]; neighborhoods: string[]; postal_codes: string[]}>({ addresses: [], districts: [], neighborhoods: [], postal_codes: [] });
+  editingRecord = signal<RecordItem | null>(null);
+  recordMessage = signal('');
+  recordError = signal('');
   total = signal(0);
   currentPage = signal(1);
   pageSize = signal(10);
@@ -254,6 +292,44 @@ export class AdminRecordsComponent implements OnInit {
     q: new FormControl(''), manager_id: new FormControl(''), date_from: new FormControl(''), date_to: new FormControl(''),
     address: new FormControl(''), district: new FormControl(''), neighborhood: new FormControl(''), postal_code: new FormControl('')
   });
+  readonly minBirthDate = this.isoDateYearsAgo(120);
+  readonly maxBirthDate = this.todayIsoDate();
+  recordForm = new FormGroup({
+    first_name: new FormControl('', { nonNullable: true, validators: Validators.required }),
+    paternal_surname: new FormControl('', { nonNullable: true, validators: Validators.required }),
+    maternal_surname: new FormControl(''),
+    address: new FormControl('', { nonNullable: true, validators: Validators.required }),
+    exterior_number: new FormControl(''),
+    neighborhood: new FormControl(''),
+    district: new FormControl(''),
+    postal_code: new FormControl('', { nonNullable: true, validators: Validators.pattern(/^\d{5}$/) }),
+    birth_date: new FormControl('', { nonNullable: true, validators: [Validators.required, this.birthDateValidator.bind(this)] }),
+    phone: new FormControl('', { nonNullable: true, validators: [Validators.required, Validators.pattern(/^\d{10}$/)] }),
+    electoral_key: new FormControl('', { nonNullable: true, validators: [Validators.required, Validators.pattern(/^[A-Za-z0-9]{18}$/)] }),
+    observations: new FormControl('')
+  });
+  recordFields = [
+    {key: 'first_name', label: 'Nombre', type: 'text', placeholder: ''},
+    {key: 'paternal_surname', label: 'Apellido paterno', type: 'text', placeholder: ''},
+    {key: 'maternal_surname', label: 'Apellido materno', type: 'text', placeholder: ''},
+    {key: 'address', label: 'Domicilio', type: 'text', placeholder: ''},
+    {key: 'exterior_number', label: 'No. EXT', type: 'text', placeholder: ''},
+    {key: 'neighborhood', label: 'Fraccionamiento', type: 'text', placeholder: ''},
+    {key: 'district', label: 'Distrito', type: 'text', placeholder: ''},
+    {key: 'postal_code', label: 'C.P.', type: 'text', placeholder: '5 digitos'},
+    {key: 'birth_date', label: 'Fecha de nacimiento', type: 'date', placeholder: '', min: this.minBirthDate, max: this.maxBirthDate},
+    {key: 'phone', label: 'Telefono', type: 'tel', placeholder: '10 digitos'},
+    {key: 'electoral_key', label: 'Clave Electoral', type: 'text', placeholder: '18 caracteres'}
+  ];
+  private recordLabels: Record<string, string> = {
+    first_name: 'nombre',
+    paternal_surname: 'apellido paterno',
+    address: 'domicilio',
+    postal_code: 'C.P.',
+    birth_date: 'fecha de nacimiento',
+    phone: 'telefono',
+    electoral_key: 'clave electoral'
+  };
   ngOnInit() {
     this.api.get<{data: AdminManagerRow[]}>('/admin/managers').subscribe((response) => this.managers.set(response.data));
     this.loadFilterOptions();
@@ -261,8 +337,8 @@ export class AdminRecordsComponent implements OnInit {
     if (managerId) this.filters.patchValue({ manager_id: managerId });
     this.load();
   }
-  search() { this.currentPage.set(1); this.load(); }
-  clear() { this.filters.reset(); this.currentPage.set(1); this.load(); }
+  search() { this.currentPage.set(1); this.cancelEdit(); this.load(); }
+  clear() { this.filters.reset(); this.currentPage.set(1); this.cancelEdit(); this.load(); }
   changePageSize(value: string) { this.pageSize.set(Number(value)); this.currentPage.set(1); this.load(); }
   previousPage() { if (this.currentPage() > 1) { this.currentPage.update((page) => page - 1); this.load(); } }
   nextPage() { if (this.currentPage() < this.totalPages()) { this.currentPage.update((page) => page + 1); this.load(); } }
@@ -270,15 +346,113 @@ export class AdminRecordsComponent implements OnInit {
     this.api.download(`/exports/records?${queryString(cleanParams({ ...this.filters.getRawValue(), format }))}`).subscribe((blob) => saveBlob(blob, `registros-globales.${format}`));
   }
   dateTimeText(value: unknown) { return formatDateTimeText(value); }
+  editRecord(record: RecordItem) {
+    this.editingRecord.set(record);
+    this.recordMessage.set('');
+    this.recordError.set('');
+    this.recordForm.reset({
+      first_name: this.stringValue(record['first_name']),
+      paternal_surname: this.stringValue(record['paternal_surname']),
+      maternal_surname: this.stringValue(record['maternal_surname']),
+      address: this.stringValue(record['address']),
+      exterior_number: this.stringValue(record['exterior_number']),
+      neighborhood: this.stringValue(record['neighborhood']),
+      district: this.stringValue(record['district']),
+      postal_code: this.stringValue(record['postal_code']),
+      birth_date: this.inputDate(this.stringValue(record['birth_date'])),
+      phone: this.stringValue(record['phone']),
+      electoral_key: this.stringValue(record['electoral_key']),
+      observations: this.stringValue(record['observations'])
+    });
+  }
+  cancelEdit() {
+    this.editingRecord.set(null);
+    this.recordMessage.set('');
+    this.recordError.set('');
+  }
+  saveRecord() {
+    const current = this.editingRecord();
+    if (!current) return;
+    if (this.recordForm.invalid) {
+      this.recordForm.markAllAsTouched();
+      this.recordError.set('Revisa los campos marcados antes de guardar.');
+      return;
+    }
+    const value = this.recordForm.getRawValue();
+    this.api.patch<{data: RecordItem}>(`/records/${current.id}`, { ...value, electoral_key: value.electoral_key.toUpperCase() }).subscribe({
+      next: (response) => {
+        this.recordError.set('');
+        this.recordMessage.set('Registro actualizado correctamente.');
+        this.editingRecord.set(response.data);
+        this.load();
+      },
+      error: (e) => this.recordError.set(apiErrorMessage(e, this.recordLabels))
+    });
+  }
+  recordIssue(key: string) {
+    const control = this.recordForm.get(key);
+    if (!control?.invalid || (!control.touched && !control.dirty)) return '';
+    const label = this.recordLabels[key] ?? key;
+    if (control.errors?.['required']) return `${label} es obligatorio.`;
+    if (control.errors?.['birthDateRange']) return `fecha debe estar entre ${this.displayDate(this.minBirthDate)} y ${this.displayDate(this.maxBirthDate)}.`;
+    if (control.errors?.['pattern']) return this.patternMessage(key);
+    return `Revisa ${label}.`;
+  }
   private loadFilterOptions() {
     this.filterOptionsLoading.set(true);
     this.api.get<{data: {addresses: string[]; districts: string[]; neighborhoods: string[]; postal_codes: string[]}}>('/admin/record-filter-options').pipe(finalize(() => this.filterOptionsLoading.set(false))).subscribe((response) => this.filterOptions.set(response.data));
   }
   private load() {
-    this.api.get<ManagerRecordsResponse>('/admin/records', cleanParams({ ...this.filters.getRawValue(), page: this.currentPage(), limit: this.pageSize() })).subscribe((response) => {
+    this.recordsLoading.set(true);
+    this.api.get<ManagerRecordsResponse>('/admin/records', cleanParams({ ...this.filters.getRawValue(), page: this.currentPage(), limit: this.pageSize() })).pipe(finalize(() => this.recordsLoading.set(false))).subscribe((response) => {
       this.records.set(response.data);
       this.total.set(response.meta.total);
     });
+  }
+  private stringValue(value: unknown) { return value ? String(value) : ''; }
+  private inputDate(value: string) {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+    if (/^\d{2}\/\d{2}\/\d{4}$/.test(value)) {
+      const [day, month, year] = value.split('/');
+      return `${year}-${month}-${day}`;
+    }
+    return value;
+  }
+  private displayDate(value: string) {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      const [year, month, day] = value.split('-');
+      return `${day}/${month}/${year}`;
+    }
+    return value;
+  }
+  private birthDateValidator(control: AbstractControl<string>): ValidationErrors | null {
+    const value = control.value;
+    if (!value) return null;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return { birthDateRange: true };
+    if (!this.isRealIsoDate(value)) return { birthDateRange: true };
+    return value >= this.minBirthDate && value <= this.maxBirthDate ? null : { birthDateRange: true };
+  }
+  private todayIsoDate() {
+    const today = new Date();
+    return this.formatIsoDate(today.getFullYear(), today.getMonth() + 1, today.getDate());
+  }
+  private isoDateYearsAgo(years: number) {
+    const today = new Date();
+    return this.formatIsoDate(today.getFullYear() - years, today.getMonth() + 1, today.getDate());
+  }
+  private isRealIsoDate(value: string) {
+    const [year, month, day] = value.split('-').map(Number);
+    const date = new Date(Date.UTC(year, month - 1, day));
+    return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+  }
+  private formatIsoDate(year: number, month: number, day: number) {
+    return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  }
+  private patternMessage(key: string) {
+    if (key === 'postal_code') return 'C.P. debe tener 5 digitos';
+    if (key === 'phone') return 'telefono debe tener 10 digitos';
+    if (key === 'electoral_key') return 'clave electoral debe tener 18 letras o numeros';
+    return 'formato invalido';
   }
 }
 
@@ -305,18 +479,22 @@ export class AdminRecordsComponent implements OnInit {
       <table>
         <thead><tr><th>Gestor</th><th>Origen</th><th>Periodo</th><th>Vigencia</th><th>Avance</th><th></th></tr></thead>
         <tbody>
-          @for(manager of managers(); track manager.id) {
-            @for(goal of manager.active_goals_list || []; track goal.id) {
-              <tr [class.admin-goal-row]="goal.created_by_role === 'admin'">
-                <td>{{manager.full_name}}</td>
-                <td><span class="goal-pill" [class.admin-goal]="goal.created_by_role === 'admin'">{{goal.created_by_role === 'admin' ? 'Admin' : 'Gestor'}}</span></td>
-                <td>{{periodLabel(goal.period_type)}} - {{goal.target_count}} registros</td>
-                <td><span class="date-range">{{dateText(goal.starts_on)}}<small>a</small>{{dateText(goal.ends_on)}}</span></td>
-                <td><div class="progress"><span [style.width.%]="barWidth(goal.progress?.percentage || 0)"></span></div><small>{{goal.progress?.count || 0}} / {{goal.target_count}} - {{goal.progress?.percentage || 0}}%</small></td>
-                <td><div class="row-actions"><button class="secondary action-button" (click)="editGoal(manager.id, goal)">Editar</button><button class="danger action-button" (click)="deleteGoal(goal)">Eliminar</button></div></td>
-              </tr>
+          @if(goalsLoading()) {
+            @for(row of [1,2,3]; track row) {
+              <tr class="skeleton-table-row">@for(cell of [1,2,3,4,5,6]; track cell) {<td><span class="skeleton-line"></span></td>}</tr>
             }
-          } @empty {<tr><td colspan="6">No hay gestores.</td></tr>}
+          } @else {
+            @for(row of goalRows(); track row.goal.id) {
+              <tr [class.admin-goal-row]="row.goal.created_by_role === 'admin'">
+                <td>{{row.manager.full_name}}</td>
+                <td><span class="goal-pill" [class.admin-goal]="row.goal.created_by_role === 'admin'">{{row.goal.created_by_role === 'admin' ? 'Admin' : 'Gestor'}}</span></td>
+                <td>{{periodLabel(row.goal.period_type)}} - {{row.goal.target_count}} registros</td>
+                <td><span class="date-range">{{dateText(row.goal.starts_on)}}<small>a</small>{{dateText(row.goal.ends_on)}}</span></td>
+                <td><div class="progress"><span [style.width.%]="barWidth(row.goal.progress?.percentage || 0)"></span></div><small>{{row.goal.progress?.count || 0}} / {{row.goal.target_count}} - {{row.goal.progress?.percentage || 0}}%</small></td>
+                <td><div class="row-actions"><button class="secondary action-button" (click)="editGoal(row.manager.id, row.goal)">Editar</button><button class="danger action-button" (click)="deleteGoal(row.goal)">Eliminar</button></div></td>
+              </tr>
+            } @empty {<tr><td colspan="6">Sin metas activas.</td></tr>}
+          }
         </tbody>
       </table>
     </section>
@@ -325,6 +503,8 @@ export class AdminRecordsComponent implements OnInit {
 export class AdminManagerGoalsComponent implements OnInit {
   private api = inject(ApiService);
   managers = signal<AdminManagerRow[]>([]);
+  goalsLoading = signal(true);
+  goalRows = computed(() => this.managers().flatMap((manager) => (manager.active_goals_list || []).map((goal) => ({ manager, goal }))));
   saving = signal(false);
   editingGoalId = signal('');
   message = signal('');
@@ -376,7 +556,8 @@ export class AdminManagerGoalsComponent implements OnInit {
     });
   }
   private loadManagers() {
-    this.api.get<{data: AdminManagerRow[]}>('/admin/managers').subscribe((response) => this.managers.set(response.data));
+    this.goalsLoading.set(true);
+    this.api.get<{data: AdminManagerRow[]}>('/admin/managers').pipe(finalize(() => this.goalsLoading.set(false))).subscribe((response) => this.managers.set(response.data));
   }
   periodLabel(period: GoalPeriod) { return periodLabels[period]; }
   barWidth(value: number) { return Math.min(value, 100); }
