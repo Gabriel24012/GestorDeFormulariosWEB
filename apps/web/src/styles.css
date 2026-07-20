@@ -39,6 +39,9 @@ canvas {
   max-width: 100%;
 }
 header {
+  position: sticky;
+  top: 0;
+  z-index: 1000;
   min-height: 64px;
   display: flex;
   align-items: center;
@@ -46,6 +49,7 @@ header {
   padding: 0 5%;
   background: var(--blue-strong);
   border-bottom: 1px solid #0d3474;
+  box-shadow: 0 10px 24px #051f501f;
   color: #ffffff;
 }
 .header-main,
