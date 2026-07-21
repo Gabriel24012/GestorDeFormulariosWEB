@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { authenticate, authorize } from '../middleware/auth.js';
 import { serviceDb } from '../lib/supabase.js';
 import { env } from '../config/env.js';
-import { sendTeamInviteEmail } from '../lib/email.js';
+import { EmailDeliveryError, sendTeamInviteEmail } from '../lib/email.js';
 import { accountPatchSchema, accountSchema, completeInviteSchema, goalPatchSchema, goalSchema, idParam, inviteLinkSchema, inviteTokenParam, managerRecordFiltersSchema, recordPatchSchema, recordSchema, toIsoDate } from '../lib/validation.js';
 
 const router = Router();
@@ -193,7 +193,7 @@ router.post('/admin/manager-invite-links', authorize('admin'), async (req, res, 
     }).select('id,placeholder_name,recipient_email,status,created_at').single();
     if (error) throw error;
     const link = inviteLink(token);
-    await sendTeamInviteEmail({
+    const emailWarning = await sendInviteEmailOrWarning({
       to: data.recipient_email,
       inviterName: req.auth!.profile.full_name,
       inviteeLabel: data.placeholder_name,
@@ -201,7 +201,7 @@ router.post('/admin/manager-invite-links', authorize('admin'), async (req, res, 
       link
     });
     await audit(req.auth!.profile.id, 'manager_invites', data.id, 'create_manager_invite_link');
-    res.status(201).json({ data: { ...data, link } });
+    res.status(201).json({ data: { ...data, link, email_sent: !emailWarning, warning: emailWarning } });
   } catch (e) { next(e); }
 });
 
@@ -219,7 +219,7 @@ router.post('/admin/manager-invites/:id/resend-or-copy', authorize('admin'), asy
     if (error || !data) return res.status(404).json({ error: 'Invitacion pendiente no encontrada.' });
     if (!data.recipient_email) return res.status(422).json({ error: 'Esta invitacion no tiene correo destino. Genera una nueva invitacion con correo.' });
     const link = inviteLink(token);
-    await sendTeamInviteEmail({
+    const emailWarning = await sendInviteEmailOrWarning({
       to: data.recipient_email,
       inviterName: req.auth!.profile.full_name,
       inviteeLabel: data.placeholder_name,
@@ -227,7 +227,7 @@ router.post('/admin/manager-invites/:id/resend-or-copy', authorize('admin'), asy
       link
     });
     await audit(req.auth!.profile.id, 'manager_invites', id, 'regenerate_manager_invite_link');
-    res.json({ data: { ...data, link } });
+    res.json({ data: { ...data, link, email_sent: !emailWarning, warning: emailWarning } });
   } catch (e) { next(e); }
 });
 
@@ -382,7 +382,7 @@ router.post('/capturadores/invite-links', authorize('gestor'), async (req, res, 
     }).select('id,placeholder_name,recipient_email,status,created_at').single();
     if (error) throw error;
     const link = inviteLink(token);
-    await sendTeamInviteEmail({
+    const emailWarning = await sendInviteEmailOrWarning({
       to: data.recipient_email,
       inviterName: req.auth!.profile.full_name,
       inviteeLabel: data.placeholder_name,
@@ -390,7 +390,7 @@ router.post('/capturadores/invite-links', authorize('gestor'), async (req, res, 
       link
     });
     await audit(req.auth!.profile.id, 'capturer_invites', data.id, 'create_invite_link');
-    res.status(201).json({ data: { ...data, link } });
+    res.status(201).json({ data: { ...data, link, email_sent: !emailWarning, warning: emailWarning } });
   } catch (e) { next(e); }
 });
 
@@ -408,7 +408,7 @@ router.post('/capturadores/:id/resend-or-copy', authorize('gestor'), async (req,
     if (error || !data) return res.status(404).json({ error: 'Invitacion pendiente no encontrada.' });
     if (!data.recipient_email) return res.status(422).json({ error: 'Esta invitacion no tiene correo destino. Genera una nueva invitacion con correo.' });
     const link = inviteLink(token);
-    await sendTeamInviteEmail({
+    const emailWarning = await sendInviteEmailOrWarning({
       to: data.recipient_email,
       inviterName: req.auth!.profile.full_name,
       inviteeLabel: data.placeholder_name,
@@ -416,7 +416,7 @@ router.post('/capturadores/:id/resend-or-copy', authorize('gestor'), async (req,
       link
     });
     await audit(req.auth!.profile.id, 'capturer_invites', id, 'regenerate_invite_link');
-    res.json({ data: { ...data, link } });
+    res.json({ data: { ...data, link, email_sent: !emailWarning, warning: emailWarning } });
   } catch (e) { next(e); }
 });
 
@@ -809,6 +809,16 @@ function tokenHash(token: string) {
 
 function inviteLink(token: string) {
   return `${env.APP_URL}/auth/invite/${token}`;
+}
+
+async function sendInviteEmailOrWarning(input: Parameters<typeof sendTeamInviteEmail>[0]) {
+  try {
+    await sendTeamInviteEmail(input);
+    return null;
+  } catch (error) {
+    if (error instanceof EmailDeliveryError) return error.message;
+    throw error;
+  }
 }
 
 type ManagerRecordFilters = z.infer<typeof managerRecordFiltersSchema>;

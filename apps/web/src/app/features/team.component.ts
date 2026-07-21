@@ -174,13 +174,13 @@ export class TeamComponent implements OnInit {
     }
     this.creatingManager.set(true);
     this.error.set('');
-    this.api.post<{data: {link: string}}>('/admin/manager-invite-links', {
+    this.api.post<{data: InviteResponse}>('/admin/manager-invite-links', {
       placeholder_name: control.value,
       email: this.adminForm.controls.email.value
     }).pipe(finalize(() => this.creatingManager.set(false))).subscribe({
       next: (response) => {
         this.generatedLink.set(response.data.link);
-        this.message.set('Invitacion enviada por correo.');
+        this.message.set(inviteMessage(response.data, 'Invitacion enviada por correo.'));
         this.adminForm.reset();
         this.load();
       },
@@ -219,11 +219,11 @@ export class TeamComponent implements OnInit {
     }
     this.creatingInvite.set(true);
     this.error.set('');
-    this.api.post<{data: {link: string}}>('/capturadores/invite-links', this.inviteForm.getRawValue()).pipe(finalize(() => this.creatingInvite.set(false))).subscribe({
+    this.api.post<{data: InviteResponse}>('/capturadores/invite-links', this.inviteForm.getRawValue()).pipe(finalize(() => this.creatingInvite.set(false))).subscribe({
       next: (response) => {
         this.error.set('');
         this.generatedLink.set(response.data.link);
-        this.message.set('Invitacion enviada por correo.');
+        this.message.set(inviteMessage(response.data, 'Invitacion enviada por correo.'));
         this.inviteForm.reset();
         this.load();
       },
@@ -234,12 +234,12 @@ export class TeamComponent implements OnInit {
   copyPendingLink(id: string) {
     this.copyingInviteId.set(id);
     this.error.set('');
-    this.api.post<{data: {link: string}}>(`/capturadores/${id}/resend-or-copy`, {}).pipe(finalize(() => this.copyingInviteId.set(''))).subscribe({
+    this.api.post<{data: InviteResponse}>(`/capturadores/${id}/resend-or-copy`, {}).pipe(finalize(() => this.copyingInviteId.set(''))).subscribe({
       next: (response) => {
         this.error.set('');
         this.generatedLink.set(response.data.link);
         this.copy(response.data.link);
-        this.message.set('Invitacion reenviada. Link copiado como respaldo.');
+        this.message.set(inviteMessage(response.data, 'Invitacion reenviada. Link copiado como respaldo.'));
       },
       error: (e) => this.error.set(apiErrorMessage(e, teamLabels))
     });
@@ -248,11 +248,11 @@ export class TeamComponent implements OnInit {
   copyPendingManagerLink(id: string) {
     this.copyingInviteId.set(id);
     this.error.set('');
-    this.api.post<{data: {link: string}}>(`/admin/manager-invites/${id}/resend-or-copy`, {}).pipe(finalize(() => this.copyingInviteId.set(''))).subscribe({
+    this.api.post<{data: InviteResponse}>(`/admin/manager-invites/${id}/resend-or-copy`, {}).pipe(finalize(() => this.copyingInviteId.set(''))).subscribe({
       next: (response) => {
         this.generatedLink.set(response.data.link);
         this.copy(response.data.link);
-        this.message.set('Invitacion reenviada. Link copiado como respaldo.');
+        this.message.set(inviteMessage(response.data, 'Invitacion reenviada. Link copiado como respaldo.'));
       },
       error: (e) => this.error.set(apiErrorMessage(e, teamLabels))
     });
@@ -285,4 +285,11 @@ export class TeamComponent implements OnInit {
 
 function capitalize(value: string) {
   return value ? value.charAt(0).toUpperCase() + value.slice(1) : value;
+}
+
+type InviteResponse = { link: string; email_sent?: boolean; warning?: string | null };
+
+function inviteMessage(data: InviteResponse, successText: string) {
+  if (data.email_sent === false) return `Invitacion creada, pero Resend no envio el correo: ${data.warning}. Copia el link como respaldo.`;
+  return successText;
 }

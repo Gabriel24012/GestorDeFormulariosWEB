@@ -10,7 +10,7 @@ type InviteEmailInput = {
 
 export async function sendTeamInviteEmail(input: InviteEmailInput) {
   if (!env.RESEND_API_KEY) {
-    throw new Error('Configura RESEND_API_KEY para enviar invitaciones por correo.');
+    throw new EmailDeliveryError('Configura RESEND_API_KEY para enviar invitaciones por correo.');
   }
 
   const roleLabel = input.role === 'gestor' ? 'gestor' : 'capturador';
@@ -53,7 +53,23 @@ export async function sendTeamInviteEmail(input: InviteEmailInput) {
 
   if (!response.ok) {
     const detail = await response.text();
-    throw new Error(`Resend no pudo enviar el correo (${response.status}): ${detail}`);
+    throw new EmailDeliveryError(`Resend no pudo enviar el correo (${response.status}): ${resendErrorMessage(detail)}`);
+  }
+}
+
+export class EmailDeliveryError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'EmailDeliveryError';
+  }
+}
+
+function resendErrorMessage(detail: string) {
+  try {
+    const parsed = JSON.parse(detail) as { message?: string };
+    return parsed.message || detail;
+  } catch {
+    return detail;
   }
 }
 
