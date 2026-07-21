@@ -31,12 +31,13 @@ const teamLabels: Record<string, string> = {
             <label>Correo<input type="email" formControlName="email" disabled></label>
           } @else {
             <label>Nombre para identificar gestor<input formControlName="placeholder_name" [disabled]="creatingManager()">@if(issue(adminForm, 'placeholder_name')){<small class="field-error">{{issue(adminForm, 'placeholder_name')}}</small>}</label>
+            <label>Correo del gestor<input type="email" formControlName="email" [disabled]="creatingManager()">@if(issue(adminForm, 'email')){<small class="field-error">{{issue(adminForm, 'email')}}</small>}</label>
           }
           @if (editingManagerId() && showIssue(adminForm, 'full_name')) {<p class="form-hint">Completa: {{missingText(adminForm, ['full_name'])}}</p>}
-          @if (!editingManagerId() && showIssue(adminForm, 'placeholder_name')) {<p class="form-hint">Completa: {{missingText(adminForm, ['placeholder_name'])}}</p>}
+          @if (!editingManagerId() && (showIssue(adminForm, 'placeholder_name') || showIssue(adminForm, 'email'))) {<p class="form-hint">Completa: {{missingText(adminForm, ['placeholder_name', 'email'])}}</p>}
           @if(creatingManager()) {<div class="request-placeholder"><span class="skeleton-line"></span><span class="skeleton-line skeleton-short"></span></div>}
           <div class="form-actions">
-            <button [disabled]="creatingManager()">{{creatingManager() ? 'Guardando...' : editingManagerId() ? 'Guardar cambios' : 'Generar link'}}</button>
+            <button [disabled]="creatingManager()">{{creatingManager() ? 'Guardando...' : editingManagerId() ? 'Guardar cambios' : 'Enviar invitacion'}}</button>
             @if(editingManagerId()) {<button type="button" class="secondary" (click)="cancelManagerEdit()">Cancelar</button>}
           </div>
         </form>
@@ -52,9 +53,10 @@ const teamLabels: Record<string, string> = {
         <h2>Nuevo Capturador</h2>
         <form [formGroup]="inviteForm" (ngSubmit)="createInviteLink()">
           <label>Nombre para identificar capturador<input formControlName="placeholder_name" [disabled]="creatingInvite()">@if(issue(inviteForm, 'placeholder_name')){<small class="field-error">{{issue(inviteForm, 'placeholder_name')}}</small>}</label>
-          @if (showIssue(inviteForm, 'placeholder_name')) {<p class="form-hint">Completa: {{missingText(inviteForm, ['placeholder_name'])}}</p>}
+          <label>Correo del capturador<input type="email" formControlName="email" [disabled]="creatingInvite()">@if(issue(inviteForm, 'email')){<small class="field-error">{{issue(inviteForm, 'email')}}</small>}</label>
+          @if (showIssue(inviteForm, 'placeholder_name') || showIssue(inviteForm, 'email')) {<p class="form-hint">Completa: {{missingText(inviteForm, ['placeholder_name', 'email'])}}</p>}
           @if(creatingInvite()) {<div class="request-placeholder"><span class="skeleton-line"></span><span class="skeleton-line skeleton-short"></span></div>}
-          <button [disabled]="creatingInvite()">{{creatingInvite() ? 'Generando link...' : 'Generar link'}}</button>
+          <button [disabled]="creatingInvite()">{{creatingInvite() ? 'Enviando...' : 'Enviar invitacion'}}</button>
         </form>
         @if (generatedLink()) {
           <div class="copy-box">
@@ -88,9 +90,9 @@ const teamLabels: Record<string, string> = {
                   @if(auth.profile()?.role === 'admin' && item.kind === 'profile') {
                     <div class="row-actions"><button class="secondary action-button" (click)="editManager(item)">Editar</button><button class="danger action-button" (click)="deleteManager(item)">Eliminar</button></div>
                   } @else if(auth.profile()?.role === 'admin' && item.kind === 'invite') {
-                    <button class="secondary" (click)="copyPendingManagerLink(item.id)" [disabled]="copyingInviteId() === item.id">{{copyingInviteId() === item.id ? 'Copiando...' : 'Copiar link'}}</button>
+                    <button class="secondary" (click)="copyPendingManagerLink(item.id)" [disabled]="copyingInviteId() === item.id">{{copyingInviteId() === item.id ? 'Enviando...' : 'Reenviar correo'}}</button>
                   } @else if(item.kind === 'invite') {
-                    <button class="secondary" (click)="copyPendingLink(item.id)" [disabled]="copyingInviteId() === item.id">{{copyingInviteId() === item.id ? 'Copiando...' : 'Copiar link'}}</button>
+                    <button class="secondary" (click)="copyPendingLink(item.id)" [disabled]="copyingInviteId() === item.id">{{copyingInviteId() === item.id ? 'Enviando...' : 'Reenviar correo'}}</button>
                   }
                 </td>
               </tr>
@@ -116,7 +118,8 @@ export class TeamComponent implements OnInit {
   editingManagerId = signal('');
 
   inviteForm = new FormGroup({
-    placeholder_name: new FormControl('', { nonNullable: true, validators: Validators.required })
+    placeholder_name: new FormControl('', { nonNullable: true, validators: Validators.required }),
+    email: new FormControl('', { nonNullable: true, validators: [Validators.required, Validators.email] })
   });
 
   adminForm = new FormGroup({
@@ -163,17 +166,21 @@ export class TeamComponent implements OnInit {
 
   createManagerLink() {
     const control = this.adminForm.controls.placeholder_name;
-    if (control.invalid) {
+    if (control.invalid || this.adminForm.controls.email.invalid) {
       control.markAsTouched();
-      this.error.set('Escribe un nombre para identificar al gestor.');
+      this.adminForm.controls.email.markAsTouched();
+      this.error.set('Escribe nombre y correo para enviar la invitacion.');
       return;
     }
     this.creatingManager.set(true);
     this.error.set('');
-    this.api.post<{data: {link: string}}>('/admin/manager-invite-links', { placeholder_name: control.value }).pipe(finalize(() => this.creatingManager.set(false))).subscribe({
+    this.api.post<{data: {link: string}}>('/admin/manager-invite-links', {
+      placeholder_name: control.value,
+      email: this.adminForm.controls.email.value
+    }).pipe(finalize(() => this.creatingManager.set(false))).subscribe({
       next: (response) => {
         this.generatedLink.set(response.data.link);
-        this.message.set('Link generado correctamente.');
+        this.message.set('Invitacion enviada por correo.');
         this.adminForm.reset();
         this.load();
       },
@@ -216,7 +223,7 @@ export class TeamComponent implements OnInit {
       next: (response) => {
         this.error.set('');
         this.generatedLink.set(response.data.link);
-        this.message.set('Link generado correctamente.');
+        this.message.set('Invitacion enviada por correo.');
         this.inviteForm.reset();
         this.load();
       },
@@ -232,7 +239,7 @@ export class TeamComponent implements OnInit {
         this.error.set('');
         this.generatedLink.set(response.data.link);
         this.copy(response.data.link);
-        this.message.set('Link copiado.');
+        this.message.set('Invitacion reenviada. Link copiado como respaldo.');
       },
       error: (e) => this.error.set(apiErrorMessage(e, teamLabels))
     });
@@ -245,7 +252,7 @@ export class TeamComponent implements OnInit {
       next: (response) => {
         this.generatedLink.set(response.data.link);
         this.copy(response.data.link);
-        this.message.set('Link copiado.');
+        this.message.set('Invitacion reenviada. Link copiado como respaldo.');
       },
       error: (e) => this.error.set(apiErrorMessage(e, teamLabels))
     });

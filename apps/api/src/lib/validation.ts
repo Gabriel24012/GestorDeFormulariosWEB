@@ -44,7 +44,8 @@ export const recordSchema = personSchema;
 export const recordPatchSchema = personSchema.partial().extend({ status: z.enum(['active', 'voided']).optional() }).refine((v) => Object.keys(v).length > 0, 'Envia al menos un cambio.');
 
 export const inviteLinkSchema = z.object({
-  placeholder_name: requiredText(120, 'Nombre para identificar capturador')
+  placeholder_name: requiredText(120, 'Nombre para identificar'),
+  email: z.string().trim().email('Escribe un correo valido.').max(255, 'Correo no puede tener mas de 255 caracteres.')
 });
 
 export const completeInviteSchema = z.object({

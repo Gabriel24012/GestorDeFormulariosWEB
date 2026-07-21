@@ -27,14 +27,21 @@ Mientras no haya dominio propio, usa la URL `*.pages.dev` de Cloudflare Pages.
 
 ## 2. Resend para correos
 
-Para este proyecto, la ruta recomendada es conectar Resend como SMTP de Supabase Auth. Asi Supabase seguira enviando invitaciones, confirmaciones y reset de password, pero usando tu dominio verificado en Resend.
+El API envia las invitaciones de gestores y capturadores con Resend. Supabase Auth puede seguir usando SMTP para confirmaciones o reset de password si lo necesitas.
 
 En Resend:
 
 1. Agrega y verifica el dominio que usara la app.
 2. Crea una API key para envio.
 
-En Supabase Auth SMTP usa:
+En Render agrega:
+
+```text
+RESEND_API_KEY=TU_RESEND_API_KEY
+EMAIL_FROM=Gestion de Captura <no-reply@TU_DOMINIO>
+```
+
+Opcionalmente, en Supabase Auth SMTP usa la misma API key para correos propios de Auth:
 
 ```text
 Host=smtp.resend.com
@@ -69,6 +76,8 @@ SUPABASE_SERVICE_ROLE_KEY=tu_service_role_key
 CORS_ORIGINS=https://gestion-captura-web.pages.dev
 APP_URL=https://gestion-captura-web.pages.dev
 ENABLE_DEMO_DATA=false
+RESEND_API_KEY=TU_RESEND_API_KEY
+EMAIL_FROM=Gestion de Captura <no-reply@TU_DOMINIO>
 ```
 
 Render define `PORT` automaticamente. El API ya lo acepta, asi que no necesitas configurar `API_PORT` en Render.

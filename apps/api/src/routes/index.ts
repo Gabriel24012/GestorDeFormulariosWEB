@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { authenticate, authorize } from '../middleware/auth.js';
 import { serviceDb } from '../lib/supabase.js';
 import { env } from '../config/env.js';
+import { sendTeamInviteEmail } from '../lib/email.js';
 import { accountPatchSchema, accountSchema, completeInviteSchema, goalPatchSchema, goalSchema, idParam, inviteLinkSchema, inviteTokenParam, managerRecordFiltersSchema, recordPatchSchema, recordSchema, toIsoDate } from '../lib/validation.js';
 
 const router = Router();
@@ -136,13 +137,13 @@ router.get('/gestores', authorize('admin'), async (_req, res, next) => {
   try {
     const [{ data, error }, { data: invites, error: invitesError }] = await Promise.all([
       serviceDb.from('profiles').select('*').eq('role', 'gestor').order('full_name'),
-      serviceDb.from('manager_invites').select('id,placeholder_name,status,created_at,used_at').eq('status', 'pending').order('created_at', { ascending: false })
+      serviceDb.from('manager_invites').select('id,placeholder_name,recipient_email,status,created_at,used_at').eq('status', 'pending').order('created_at', { ascending: false })
     ]);
     if (error) throw error;
     if (invitesError) throw invitesError;
     res.json({ data: [
       ...(data ?? []).map((item) => ({ ...item, kind: 'profile', status_label: item.is_active ? 'Activo' : 'Inactivo' })),
-      ...(invites ?? []).map((item) => ({ id: item.id, kind: 'invite', placeholder_name: item.placeholder_name, status_label: 'Pendiente', created_at: item.created_at }))
+      ...(invites ?? []).map((item) => ({ id: item.id, kind: 'invite', placeholder_name: item.placeholder_name, email: item.recipient_email, status_label: 'Pendiente', created_at: item.created_at }))
     ] });
   } catch (e) { next(e); }
 });
@@ -187,11 +188,20 @@ router.post('/admin/manager-invite-links', authorize('admin'), async (req, res, 
     const { data, error } = await serviceDb.from('manager_invites').insert({
       token_hash: tokenHash(token),
       admin_id: req.auth!.profile.id,
-      placeholder_name: body.placeholder_name
-    }).select('id,placeholder_name,status,created_at').single();
+      placeholder_name: body.placeholder_name,
+      recipient_email: body.email.toLowerCase()
+    }).select('id,placeholder_name,recipient_email,status,created_at').single();
     if (error) throw error;
+    const link = inviteLink(token);
+    await sendTeamInviteEmail({
+      to: data.recipient_email,
+      inviterName: req.auth!.profile.full_name,
+      inviteeLabel: data.placeholder_name,
+      role: 'gestor',
+      link
+    });
     await audit(req.auth!.profile.id, 'manager_invites', data.id, 'create_manager_invite_link');
-    res.status(201).json({ data: { ...data, link: inviteLink(token) } });
+    res.status(201).json({ data: { ...data, link } });
   } catch (e) { next(e); }
 });
 
@@ -204,11 +214,20 @@ router.post('/admin/manager-invites/:id/resend-or-copy', authorize('admin'), asy
       .eq('id', id)
       .eq('admin_id', req.auth!.profile.id)
       .eq('status', 'pending')
-      .select('id,placeholder_name,status')
+      .select('id,placeholder_name,recipient_email,status')
       .single();
     if (error || !data) return res.status(404).json({ error: 'Invitacion pendiente no encontrada.' });
+    if (!data.recipient_email) return res.status(422).json({ error: 'Esta invitacion no tiene correo destino. Genera una nueva invitacion con correo.' });
+    const link = inviteLink(token);
+    await sendTeamInviteEmail({
+      to: data.recipient_email,
+      inviterName: req.auth!.profile.full_name,
+      inviteeLabel: data.placeholder_name,
+      role: 'gestor',
+      link
+    });
     await audit(req.auth!.profile.id, 'manager_invites', id, 'regenerate_manager_invite_link');
-    res.json({ data: { ...data, link: inviteLink(token) } });
+    res.json({ data: { ...data, link } });
   } catch (e) { next(e); }
 });
 
@@ -336,7 +355,7 @@ router.get('/capturadores', authorize('admin', 'gestor'), async (req, res, next)
   try {
     const actor = req.auth!.profile;
     let capturersQuery = serviceDb.from('profiles').select('id,email,full_name,is_active,onboarding_completed_at,parent_user_id,created_at').eq('role', 'capturador').order('full_name');
-    let invitesQuery = serviceDb.from('capturer_invites').select('id,placeholder_name,status,used_by_user_id,created_at,used_at,manager_id').eq('status', 'pending').order('created_at', { ascending: false });
+    let invitesQuery = serviceDb.from('capturer_invites').select('id,placeholder_name,recipient_email,status,used_by_user_id,created_at,used_at,manager_id').eq('status', 'pending').order('created_at', { ascending: false });
     if (actor.role === 'gestor') {
       capturersQuery = capturersQuery.eq('parent_user_id', actor.id);
       invitesQuery = invitesQuery.eq('manager_id', actor.id);
@@ -346,7 +365,7 @@ router.get('/capturadores', authorize('admin', 'gestor'), async (req, res, next)
     if (invitesError) throw invitesError;
     res.json({ data: [
       ...(capturers ?? []).map((item) => ({ ...item, kind: 'profile', status_label: item.onboarding_completed_at ? 'Perfil completo' : 'Pendiente' })),
-      ...(invites ?? []).map((item) => ({ id: item.id, kind: 'invite', placeholder_name: item.placeholder_name, status_label: 'Pendiente', created_at: item.created_at }))
+      ...(invites ?? []).map((item) => ({ id: item.id, kind: 'invite', placeholder_name: item.placeholder_name, email: item.recipient_email, status_label: 'Pendiente', created_at: item.created_at }))
     ] });
   } catch (e) { next(e); }
 });
@@ -358,11 +377,20 @@ router.post('/capturadores/invite-links', authorize('gestor'), async (req, res, 
     const { data, error } = await serviceDb.from('capturer_invites').insert({
       token_hash: tokenHash(token),
       manager_id: req.auth!.profile.id,
-      placeholder_name: body.placeholder_name
-    }).select('id,placeholder_name,status,created_at').single();
+      placeholder_name: body.placeholder_name,
+      recipient_email: body.email.toLowerCase()
+    }).select('id,placeholder_name,recipient_email,status,created_at').single();
     if (error) throw error;
+    const link = inviteLink(token);
+    await sendTeamInviteEmail({
+      to: data.recipient_email,
+      inviterName: req.auth!.profile.full_name,
+      inviteeLabel: data.placeholder_name,
+      role: 'capturador',
+      link
+    });
     await audit(req.auth!.profile.id, 'capturer_invites', data.id, 'create_invite_link');
-    res.status(201).json({ data: { ...data, link: inviteLink(token) } });
+    res.status(201).json({ data: { ...data, link } });
   } catch (e) { next(e); }
 });
 
@@ -375,11 +403,20 @@ router.post('/capturadores/:id/resend-or-copy', authorize('gestor'), async (req,
       .eq('id', id)
       .eq('manager_id', req.auth!.profile.id)
       .eq('status', 'pending')
-      .select('id,placeholder_name,status')
+      .select('id,placeholder_name,recipient_email,status')
       .single();
     if (error || !data) return res.status(404).json({ error: 'Invitacion pendiente no encontrada.' });
+    if (!data.recipient_email) return res.status(422).json({ error: 'Esta invitacion no tiene correo destino. Genera una nueva invitacion con correo.' });
+    const link = inviteLink(token);
+    await sendTeamInviteEmail({
+      to: data.recipient_email,
+      inviterName: req.auth!.profile.full_name,
+      inviteeLabel: data.placeholder_name,
+      role: 'capturador',
+      link
+    });
     await audit(req.auth!.profile.id, 'capturer_invites', id, 'regenerate_invite_link');
-    res.json({ data: { ...data, link: inviteLink(token) } });
+    res.json({ data: { ...data, link } });
   } catch (e) { next(e); }
 });
 
@@ -524,7 +561,7 @@ router.get('/manager/capturers/:id', authorize('gestor'), async (req, res, next)
     if (!capturer) {
       const { data: invite, error: inviteError } = await serviceDb
         .from('capturer_invites')
-        .select('id,placeholder_name,status,created_at,used_at')
+        .select('id,placeholder_name,recipient_email,status,created_at,used_at')
         .eq('id', id)
         .eq('manager_id', managerId)
         .maybeSingle();
@@ -1068,7 +1105,7 @@ async function managerOverview(managerId: string) {
 async function managerCapturerRows(managerId: string) {
   const [{ data: capturers, error: capturersError }, { data: invites, error: invitesError }, { data: records, error: recordsError }, goals] = await Promise.all([
     serviceDb.from('profiles').select('id,email,full_name,is_active,onboarding_completed_at,created_at').eq('parent_user_id', managerId).eq('role', 'capturador').order('full_name'),
-    serviceDb.from('capturer_invites').select('id,placeholder_name,status,created_at,used_at').eq('manager_id', managerId).eq('status', 'pending').order('created_at', { ascending: false }),
+    serviceDb.from('capturer_invites').select('id,placeholder_name,recipient_email,status,created_at,used_at').eq('manager_id', managerId).eq('status', 'pending').order('created_at', { ascending: false }),
     serviceDb.from('records').select('id,capturer_id,created_at,status').eq('manager_id', managerId).eq('status', 'active'),
     currentGoals(managerId)
   ]);
@@ -1096,6 +1133,7 @@ async function managerCapturerRows(managerId: string) {
       kind: 'invite',
       id: invite.id,
       placeholder_name: invite.placeholder_name,
+      email: invite.recipient_email,
       status_label: 'Pendiente',
       created_at: invite.created_at,
       total_records: 0,

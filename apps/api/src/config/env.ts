@@ -16,7 +16,9 @@ const schema = z.object({
   PORT: z.coerce.number().int().positive().optional(),
   CORS_ORIGINS: z.string().default('http://localhost:4200'),
   APP_URL: z.string().url().default('http://localhost:4200'),
-  ENABLE_DEMO_DATA: z.coerce.boolean().default(false)
+  ENABLE_DEMO_DATA: z.coerce.boolean().default(false),
+  RESEND_API_KEY: z.string().min(1).optional(),
+  EMAIL_FROM: z.string().min(1).default('Gestion de Captura <no-reply@example.com>')
 });
 
 const parsedEnv = schema.parse(process.env);

@@ -634,7 +634,7 @@ export class ManagerGoalsComponent implements OnInit {
       <section class="card">
         <div class="page-title">
           <div><h1>{{d.capturer?.full_name || d.invite?.placeholder_name}}</h1><p class="muted">{{d.capturer?.email || 'Invitacion pendiente'}}</p></div>
-          @if(d.can_resend_invite && d.kind === 'invite') {<button (click)="copyPendingLink(d.invite.id)">Copiar enlace</button>}
+          @if(d.can_resend_invite && d.kind === 'invite') {<button (click)="copyPendingLink(d.invite.id)">Reenviar correo</button>}
         </div>
         <div class="stats">
           <article><strong>{{d.total_records}}</strong><span>Total capturado</span></article>
@@ -671,7 +671,7 @@ export class ManagerCapturerDetailComponent implements OnInit {
     this.api.get<{data: any}>(`/manager/capturers/${this.route.snapshot.paramMap.get('id')}`).subscribe({ next: (response) => this.detail.set(response.data), error: (e) => this.error.set(apiErrorMessage(e)) });
   }
   copyPendingLink(id: string) {
-    this.api.post<{data: {link: string}}>(`/capturadores/${id}/resend-or-copy`, {}).subscribe({ next: (response) => { void navigator.clipboard?.writeText(response.data.link); this.message.set('Link copiado.'); }, error: (e) => this.error.set(apiErrorMessage(e)) });
+    this.api.post<{data: {link: string}}>(`/capturadores/${id}/resend-or-copy`, {}).subscribe({ next: (response) => { void navigator.clipboard?.writeText(response.data.link); this.message.set('Invitacion reenviada. Link copiado como respaldo.'); }, error: (e) => this.error.set(apiErrorMessage(e)) });
   }
 }
 
